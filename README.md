@@ -81,7 +81,7 @@ Add widgets in edit mode (✎ → **+ Add widget**):
 | **Pi-hole** | v5: the API token from Settings → API. v6: an app password. The widget auto-detects which API answers. |
 | **qBittorrent** | Web UI URL + username/password. If login fails, check Options → Web UI (host allowlist / CSRF). |
 | **RSS feed** | Any RSS or Atom feed URL. |
-| **Notes / Embed** | No setup — notes store text in your config; embed shows any page that allows iframes. |
+| **Notes / Embed** | No setup — notes store text in your config. Embeds show as a small card that opens the page in a fullscreen popup (or set it to inline); the page must allow iframes. |
 
 Widget data is fetched by the LabDash server (60 s cache) — tokens stay server-side and self-signed certs are accepted.
 

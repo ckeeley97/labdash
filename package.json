@@ -1,6 +1,6 @@
 {
   "name": "labdash",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Lightweight, zero-dependency homelab dashboard with a full in-browser editor. Built to live in a Proxmox LXC.",
   "main": "server.js",
   "scripts": {

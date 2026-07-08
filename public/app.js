@@ -451,7 +451,8 @@ const WTYPES = {
     label: 'Embed',
     fields: [
       { k: 'url', label: 'Page URL to embed', ph: 'http://192.168.1.50:3000/d/abc/grafana-dash', req: true },
-      { k: 'height', label: 'Height in pixels', ph: '400' },
+      { k: 'mode', label: 'Display', select: [['modal', 'Popup — small card, opens fullscreen (recommended)'], ['inline', 'Inline — embedded on the dashboard']] },
+      { k: 'height', label: 'Height in pixels (inline mode only)', ph: '400' },
     ],
     help: 'Embeds any page (Grafana panel, cameras, …). The site must allow embedding (no X-Frame-Options: DENY).',
     client: true,
@@ -485,10 +486,11 @@ function renderWidgets() {
     }
     card.appendChild(head);
 
-    if (w.type === 'iframe') card.classList.add('wide');
+    if (w.type === 'iframe' && (w.options || {}).mode === 'inline') card.classList.add('wide');
 
     const body = document.createElement('div');
     body.className = 'wbody';
+    card.appendChild(body); // attach first — client widgets reach up to style their card
     if (spec.client) {
       fillClientWidget(body, w);
     } else {
@@ -502,7 +504,6 @@ function renderWidgets() {
         fillWidgetBody(body, w.type, d.data);
       }
     }
-    card.appendChild(body);
 
     const tools = document.createElement('div');
     tools.className = 'widget-tools';
@@ -628,14 +629,42 @@ function fillClientWidget(body, w) {
     t.textContent = o.text || '';
     body.appendChild(t);
   } else if (w.type === 'iframe') {
-    const fr = document.createElement('iframe');
-    fr.src = o.url || 'about:blank';
-    fr.height = Math.max(120, parseInt(o.height, 10) || 400);
-    fr.loading = 'lazy';
-    fr.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
-    body.appendChild(fr);
+    if (o.mode === 'inline') {
+      const fr = document.createElement('iframe');
+      fr.src = o.url || 'about:blank';
+      fr.height = Math.max(120, parseInt(o.height, 10) || 400);
+      fr.loading = 'lazy';
+      fr.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+      body.appendChild(fr);
+    } else {
+      // modal mode: compact card, page loads only when opened
+      const row = document.createElement('div');
+      row.className = 'embed-open';
+      const go = document.createElement('span'); go.className = 'go'; go.textContent = '🗔';
+      const host = document.createElement('span'); host.className = 'host'; host.textContent = prettyHost(o.url) || o.url || '';
+      const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = 'click to open ⤢';
+      row.append(go, host, hint);
+      body.appendChild(row);
+      const card = body.closest('.widget');
+      card.classList.add('embed-card');
+      card.addEventListener('click', (e) => {
+        if (editing || e.target.closest('.widget-tools')) return;
+        openEmbed(w);
+      });
+    }
   }
 }
+
+function openEmbed(w) {
+  const o = w.options || {};
+  $('#embed-title').textContent = w.title || prettyHost(o.url) || 'Embed';
+  $('#embed-newtab').href = o.url || '#';
+  $('#embed-frame').src = o.url || 'about:blank';
+  $('#modal-embed').showModal();
+}
+
+$('#embed-close').addEventListener('click', () => $('#modal-embed').close());
+$('#modal-embed').addEventListener('close', () => { $('#embed-frame').src = 'about:blank'; });
 
 async function pollWidgets(force) {
   renderWidgets(); // show cards (with cached/loading state) immediately
@@ -662,6 +691,13 @@ function buildWidgetFields(type, values) {
     if (f.textarea) {
       inp = document.createElement('textarea');
       inp.rows = 5;
+    } else if (f.select) {
+      inp = document.createElement('select');
+      f.select.forEach(([val, text]) => {
+        const op = document.createElement('option');
+        op.value = val; op.textContent = text;
+        inp.appendChild(op);
+      });
     } else {
       inp = document.createElement('input');
       inp.type = f.secret ? 'password' : 'text';
@@ -670,6 +706,7 @@ function buildWidgetFields(type, values) {
     inp.placeholder = f.ph || '';
     if (f.req) inp.required = true;
     inp.value = (values && values[f.k]) || '';
+    if (f.select && !inp.value) inp.selectedIndex = 0;
     inp.autocomplete = 'off';
     lab.appendChild(inp);
     box.appendChild(lab);
