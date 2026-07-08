@@ -456,8 +456,11 @@ const WTYPES = {
       { k: 'mode', label: 'Display', select: [['modal', 'Popup — small card, opens fullscreen (recommended)'], ['inline', 'Inline — embedded on the dashboard']] },
       { k: 'size', label: 'Popup size', select: [['large', 'Large (default)'], ['compact', 'Compact window'], ['full', 'Almost fullscreen']] },
       { k: 'height', label: 'Height in pixels (inline mode only)', ph: '400' },
+      { k: 'proxy', label: 'Proxy through the LabDash server (load internal-only pages / bypass X-Frame-Options)', checkbox: true },
     ],
-    help: 'Embeds any page (Grafana panel, cameras, …). The site must allow embedding (no X-Frame-Options: DENY).',
+    help: 'Embeds any page (Grafana panel, cameras, …). Tick "Proxy" to load a page that only exists on your LAN — LabDash fetches it for you and strips framing blocks. Leave it off for pages your browser can already reach.',
+    client: true,
+  },
     client: true,
   },
 };
@@ -636,7 +639,7 @@ function fillClientWidget(body, w) {
   } else if (w.type === 'iframe') {
     if (o.mode === 'inline') {
       const fr = document.createElement('iframe');
-      fr.src = o.url || 'about:blank';
+      fr.src = embedSrc(w);
       fr.height = Math.max(120, parseInt(o.height, 10) || 400);
       fr.loading = 'lazy';
       fr.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
@@ -713,9 +716,25 @@ function openEmbed(w) {
     title.appendChild(ic);
   }
   title.appendChild(document.createTextNode(w.title || prettyHost(o.url) || 'Embed'));
-  $('#embed-newtab').href = o.url || '#';
-  $('#embed-frame').src = o.url || 'about:blank';
+  const src = embedSrc(w);
+  $('#embed-newtab').href = src === 'about:blank' ? '#' : src;
+  $('#embed-frame').src = src;
   dlg.showModal();
+}
+
+/* Where an embed's iframe actually points: the raw URL, or — when the
+   "Proxy" box is ticked — through /api/proxy/<id> so the LabDash server
+   fetches internal-only pages on the browser's behalf. */
+function embedSrc(w) {
+  const o = w.options || {};
+  if (!o.url) return 'about:blank';
+  if (!o.proxy) return o.url;
+  try {
+    const u = new URL(o.url);
+    return '/api/proxy/' + w.id + (u.pathname || '/') + (u.search || '');
+  } catch {
+    return '/api/proxy/' + w.id + '/';
+  }
 }
 
 $('#embed-close').addEventListener('click', () => $('#modal-embed').close());
@@ -741,6 +760,17 @@ function buildWidgetFields(type, values) {
   box.textContent = '';
   spec.fields.forEach((f) => {
     const lab = document.createElement('label');
+    if (f.checkbox) {
+      lab.classList.add('check');
+      const box2 = document.createElement('input');
+      box2.type = 'checkbox';
+      box2.name = 'opt_' + f.k;
+      box2.checked = !!(values && values[f.k]);
+      lab.appendChild(box2);
+      lab.appendChild(document.createTextNode(' ' + f.label));
+      box.appendChild(lab);
+      return;
+    }
     lab.textContent = f.label + ' ';
     let inp;
     if (f.textarea) {
@@ -788,7 +818,10 @@ $('#modal-widget').addEventListener('close', () => {
   const f = $('#form-widget');
   const type = f.type.value;
   const options = {};
-  WTYPES[type].fields.forEach((fl) => { options[fl.k] = f['opt_' + fl.k].value.trim(); });
+  WTYPES[type].fields.forEach((fl) => {
+    const el = f['opt_' + fl.k];
+    options[fl.k] = fl.checkbox ? el.checked : el.value.trim();
+  });
   if (!cfg.widgets) cfg.widgets = [];
   if (wgtTarget === null) {
     cfg.widgets.push({ id: uid('w'), type, title: f.title.value.trim(), options });
