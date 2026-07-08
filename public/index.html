@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LabDash</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body data-theme="dark">
+
+<div id="app">
+  <header id="topbar">
+    <div class="brand">
+      <h1 id="dash-title">LabDash</h1>
+      <p id="dash-subtitle"></p>
+    </div>
+    <div class="topbar-right">
+      <div id="weather" class="chip" hidden title=""></div>
+      <div id="clock" class="clock" hidden>
+        <div class="clock-time" id="clock-time">--:--</div>
+        <div class="clock-date" id="clock-date"></div>
+      </div>
+      <button id="btn-edit" class="iconbtn" title="Edit dashboard (E)" aria-label="Toggle edit mode">✎</button>
+      <button id="btn-settings" class="iconbtn" title="Settings" aria-label="Open settings">⚙</button>
+      <button id="btn-logout" class="iconbtn" title="Sign out" aria-label="Sign out">⏻</button>
+    </div>
+  </header>
+
+  <div id="searchwrap" hidden>
+    <input id="search" type="search" placeholder="Search services — press / to focus, Enter to open" autocomplete="off" spellcheck="false">
+  </div>
+
+  <section id="stats" class="stats-row" hidden aria-label="System stats"></section>
+
+  <section id="widgets" class="widgets-row" hidden aria-label="Integration widgets"></section>
+
+  <div id="editbar" hidden>
+    <span class="editbar-note">Edit mode — drag tiles to rearrange, click ✎ on a tile to change it.</span>
+    <button id="btn-add-widget" class="btn">+ Add widget</button>
+    <button id="btn-add-group" class="btn">+ Add group</button>
+    <button id="btn-done" class="btn btn-accent">Done</button>
+  </div>
+
+  <main id="groups"></main>
+
+  <footer id="foot"></footer>
+</div>
+
+<!-- ============ Service modal ============ -->
+<dialog id="modal-service">
+  <form method="dialog" id="form-service">
+    <h2 id="svc-modal-title">Edit service</h2>
+    <label>Name <input name="name" required maxlength="60" placeholder="Jellyfin"></label>
+    <label>URL <input name="url" type="text" placeholder="http://192.168.1.20:8096"></label>
+    <label>Icon
+      <input name="icon" maxlength="120" placeholder="jellyfin  ·  🎬  ·  https://…/icon.png">
+      <small>An emoji, an image URL, or a <a href="https://github.com/homarr-labs/dashboard-icons/tree/main/png" target="_blank" rel="noopener">dashboard-icons</a> name like <code>jellyfin</code>, <code>pi-hole</code>, <code>home-assistant</code></small>
+    </label>
+    <label>Description <input name="description" maxlength="100" placeholder="Movies &amp; TV"></label>
+    <label class="check"><input type="checkbox" name="healthEnabled"> Live status check</label>
+    <label>Status check URL <input name="healthUrl" type="text" placeholder="leave empty to use the service URL"></label>
+    <menu>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+      <button value="ok" class="btn btn-accent" id="svc-save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- ============ Group modal ============ -->
+<dialog id="modal-group">
+  <form method="dialog" id="form-group">
+    <h2 id="grp-modal-title">Group</h2>
+    <label>Name <input name="name" required maxlength="60" placeholder="Media"></label>
+    <menu>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+      <button value="ok" class="btn btn-accent">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- ============ Widget modal ============ -->
+<dialog id="modal-widget">
+  <form method="dialog" id="form-widget">
+    <h2 id="wgt-modal-title">Add widget</h2>
+    <label>Type
+      <select name="type" id="wgt-type">
+        <option value="proxmox">Proxmox node</option>
+        <option value="uptimekuma">Uptime Kuma</option>
+        <option value="speedtest">Speedtest Tracker</option>
+      </select>
+    </label>
+    <label>Title (optional) <input name="title" maxlength="40" placeholder="shown on the card"></label>
+    <div id="wgt-fields"></div>
+    <p id="wgt-help" class="muted"></p>
+    <menu>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+      <button value="ok" class="btn btn-accent">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- ============ Settings modal ============ -->
+<dialog id="modal-settings">
+  <form method="dialog" id="form-settings">
+    <h2>Settings</h2>
+
+    <div class="settings-grid">
+      <label>Title <input name="title" maxlength="60"></label>
+      <label>Subtitle <input name="subtitle" maxlength="100"></label>
+
+      <label>Theme
+        <select name="theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="auto">Follow system</option>
+        </select>
+      </label>
+
+      <label>Accent color <input name="accent" type="color"></label>
+
+      <label>Search engine
+        <select name="searchEngine">
+          <option value="https://duckduckgo.com/?q=">DuckDuckGo</option>
+          <option value="https://www.google.com/search?q=">Google</option>
+          <option value="https://www.bing.com/search?q=">Bing</option>
+          <option value="https://search.brave.com/search?q=">Brave</option>
+        </select>
+      </label>
+
+      <label class="check"><input type="checkbox" name="openInNewTab"> Open services in a new tab</label>
+      <label class="check"><input type="checkbox" name="showClock"> Show clock</label>
+      <label class="check"><input type="checkbox" name="showWeather"> Show weather</label>
+      <label class="check"><input type="checkbox" name="showStats"> Show system stats</label>
+      <label class="check"><input type="checkbox" name="showSearch"> Show search bar</label>
+    </div>
+
+    <fieldset class="weatherbox">
+      <legend>Weather location</legend>
+      <div class="georow">
+        <input id="geo-q" type="text" placeholder="Search a city…" autocomplete="off">
+        <button type="button" id="geo-go" class="btn">Find</button>
+      </div>
+      <div id="geo-results"></div>
+      <p id="geo-current" class="muted"></p>
+    </fieldset>
+
+    <fieldset class="weatherbox">
+      <legend>Change password</legend>
+      <label>Current password <input name="pwCurrent" type="password" autocomplete="current-password"></label>
+      <label>New password <input name="pwNew" type="password" autocomplete="new-password"></label>
+      <label>Confirm new password <input name="pwNew2" type="password" autocomplete="new-password"></label>
+      <p class="muted">Leave empty to keep your current password. Changing it signs out every other device.</p>
+    </fieldset>
+
+    <menu>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+      <button value="ok" class="btn btn-accent">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

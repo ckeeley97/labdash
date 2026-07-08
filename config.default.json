@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "title": "My Homelab",
+    "subtitle": "Everything in one place",
+    "theme": "dark",
+    "accent": "#4f9cf9",
+    "showClock": true,
+    "showWeather": true,
+    "showStats": true,
+    "showSearch": true,
+    "searchEngine": "https://duckduckgo.com/?q=",
+    "openInNewTab": true,
+    "weather": {
+      "name": "",
+      "lat": null,
+      "lon": null
+    }
+  },
+  "groups": [
+    {
+      "id": "g-example",
+      "name": "Getting started",
+      "services": [
+        {
+          "id": "s-example-1",
+          "name": "Proxmox",
+          "url": "https://192.168.1.10:8006",
+          "icon": "proxmox",
+          "description": "Hypervisor",
+          "health": { "enabled": true, "url": "" }
+        },
+        {
+          "id": "s-example-2",
+          "name": "Edit me",
+          "url": "https://example.com",
+          "icon": "🚀",
+          "description": "Click the pencil icon (top right) to customize everything",
+          "health": { "enabled": false, "url": "" }
+        }
+      ]
+    }
+  ]
+}

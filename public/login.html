@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LabDash — sign in</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body data-theme="dark" class="login-body">
+
+<div class="login-card">
+  <div class="login-logo">🧪</div>
+  <h1 id="login-title">LabDash</h1>
+  <p id="login-sub" class="muted">Checking…</p>
+
+  <form id="login-form" hidden>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+    <input id="pw2" type="password" placeholder="Confirm password" autocomplete="new-password" hidden>
+    <button type="submit" class="btn btn-accent" id="login-btn">Sign in</button>
+    <p id="login-err" class="login-err" role="alert"></p>
+  </form>
+</div>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+let setupMode = false;
+
+async function init() {
+  try {
+    const r = await fetch('/api/auth/status');
+    const st = await r.json();
+    if (st.authed) { location.href = '/'; return; }
+    setupMode = !st.setup;
+    $('#login-sub').textContent = setupMode
+      ? 'First run — choose a password for your dashboard.'
+      : 'Enter your password to continue.';
+    $('#pw2').hidden = !setupMode;
+    $('#pw').autocomplete = setupMode ? 'new-password' : 'current-password';
+    $('#login-btn').textContent = setupMode ? 'Set password & enter' : 'Sign in';
+    $('#login-form').hidden = false;
+    $('#pw').focus();
+  } catch {
+    $('#login-sub').textContent = 'Could not reach the LabDash server.';
+  }
+}
+
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#login-err');
+  err.textContent = '';
+  const pw = $('#pw').value;
+  if (setupMode) {
+    if (pw.length < 4) { err.textContent = 'Use at least 4 characters.'; return; }
+    if (pw !== $('#pw2').value) { err.textContent = 'Passwords do not match.'; return; }
+  }
+  const btn = $('#login-btn');
+  btn.disabled = true;
+  try {
+    const r = await fetch(setupMode ? '/api/auth/setup' : '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const out = await r.json();
+    if (r.ok && out.ok) { location.href = '/'; return; }
+    err.textContent = out.error || 'Something went wrong.';
+  } catch {
+    err.textContent = 'Network error — is the server up?';
+  }
+  btn.disabled = false;
+});
+
+init();
+</script>
+</body>
+</html>
