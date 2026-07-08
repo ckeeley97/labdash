@@ -240,8 +240,13 @@ function tileNode(svc, gi, si) {
   );
   a.appendChild(tools);
 
-  // block navigation while editing; enable dragging instead
-  a.addEventListener('click', (e) => { if (editing) e.preventDefault(); });
+  // block navigation while editing; enable dragging instead.
+  // when a service is set to open as a popup, intercept the click and load
+  // it in the shared iframe modal (optionally proxied) instead of navigating.
+  a.addEventListener('click', (e) => {
+    if (editing) { e.preventDefault(); return; }
+    if (svc.embed) { e.preventDefault(); openEmbed(svcAsEmbed(svc)); }
+  });
   a.draggable = false;
   a.addEventListener('mousedown', () => { a.draggable = editing; });
   a.addEventListener('dragstart', (e) => {
@@ -333,6 +338,9 @@ function openServiceModal(gi, si) {
   f.description.value = svc.description || '';
   f.healthEnabled.checked = !!(svc.health && svc.health.enabled);
   f.healthUrl.value = (svc.health && svc.health.url) || '';
+  f.embed.checked = !!svc.embed;
+  f.proxy.checked = !!svc.proxy;
+  f.embedSize.value = svc.embedSize || '';
   $('#modal-service').showModal();
 }
 
@@ -345,6 +353,9 @@ $('#modal-service').addEventListener('close', () => {
     icon: f.icon.value.trim(),
     description: f.description.value.trim(),
     health: { enabled: f.healthEnabled.checked, url: f.healthUrl.value.trim() },
+    embed: f.embed.checked,
+    proxy: f.proxy.checked,
+    embedSize: f.embedSize.value,
   };
   if (!data.name) return;
   const { gi, si } = svcTarget;
@@ -723,6 +734,16 @@ function openEmbed(w) {
 /* Where an embed's iframe actually points: the raw URL, or — when the
    "Proxy" box is ticked — through /api/proxy/<id> so the LabDash server
    fetches internal-only pages on the browser's behalf. */
+/* Adapt a service tile into the shape openEmbed()/embedSrc() expect, so a
+   service can reuse the same popup + proxy machinery as an iframe widget. */
+function svcAsEmbed(svc) {
+  return {
+    id: svc.id || svc.name,
+    title: svc.name,
+    options: { url: svc.url, icon: svc.icon, proxy: !!svc.proxy, size: svc.embedSize || '' },
+  };
+}
+
 function embedSrc(w) {
   const o = w.options || {};
   if (!o.url) return 'about:blank';

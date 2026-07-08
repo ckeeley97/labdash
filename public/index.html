@@ -63,6 +63,15 @@
     <label>Description <input name="description" maxlength="100" placeholder="Movies &amp; TV"></label>
     <label class="check"><input type="checkbox" name="healthEnabled"> Live status check</label>
     <label>Status check URL <input name="healthUrl" type="text" placeholder="leave empty to use the service URL"></label>
+    <label class="check"><input type="checkbox" name="embed"> Open in a popup (modal iframe) instead of navigating away</label>
+    <label class="check"><input type="checkbox" name="proxy"> Proxy through the LabDash server (load internal-only pages / bypass X-Frame-Options)</label>
+    <label>Popup size
+      <select name="embedSize">
+        <option value="">Standard</option>
+        <option value="compact">Compact — small card</option>
+        <option value="full">Full — nearly fullscreen</option>
+      </select>
+    </label>
     <menu>
       <button value="cancel" class="btn" formnovalidate>Cancel</button>
       <button value="ok" class="btn btn-accent" id="svc-save">Save</button>
