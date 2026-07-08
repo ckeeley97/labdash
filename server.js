@@ -526,12 +526,23 @@ const server = http.createServer(async (req, res) => {
       const cfg = readConfig();
       const segs = u.pathname.split('/').filter(Boolean); // ['api','proxy','<id>', ...]
       const widgetId = segs[2];
+      // Resolve the proxy target: an iframe widget with proxy on, or a
+      // service tile set to open as a popup with proxy on.
+      let targetUrl = null;
       const w = (cfg.widgets || []).find((x) => x.id === widgetId);
-      if (!w || w.type !== 'iframe' || !(w.options && w.options.proxy)) {
+      if (w && w.type === 'iframe' && w.options && w.options.proxy) {
+        targetUrl = w.options.url;
+      } else {
+        for (const g of (cfg.groups || [])) {
+          const s = (g.services || []).find((x) => (x.id || x.name) === widgetId);
+          if (s && s.embed && s.proxy) { targetUrl = s.url; break; }
+        }
+      }
+      if (!targetUrl) {
         res.writeHead(404); return res.end('proxy target not found');
       }
       let base;
-      try { base = new URL((w.options.url || '').trim()); } catch { res.writeHead(400); return res.end('widget has no valid url'); }
+      try { base = new URL((targetUrl || '').trim()); } catch { res.writeHead(400); return res.end('proxy target has no valid url'); }
       const origin = base.protocol + '//' + base.host;
       const prefix = '/api/proxy/' + widgetId;
       let restPath = u.pathname.slice(prefix.length) || '/';
