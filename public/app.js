@@ -1086,7 +1086,19 @@ async function boot() {
   pollWidgets(); setInterval(pollWidgets, 60 * 1000);
   pollWeather(); setInterval(pollWeather, 15 * 60 * 1000);
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applySettings);
-  $('#foot').textContent = 'LabDash — edit everything from the ✎ and ⚙ buttons. Config lives in data/config.json.';
+  renderFooter();
+}
+
+async function renderFooter() {
+  let line = '';
+  try {
+    const v = await apiGet('/api/version');
+    const built = v.built
+      ? new Date(v.built + 'T12:00:00').toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })
+      : '';
+    line = `LabDash rev ${v.version}${built ? ' — released ' + built : ''} · `;
+  } catch { /* version endpoint unavailable (old server) */ }
+  $('#foot').textContent = line + '© conorlab.co.uk 2026';
 }
 
 boot().catch((e) => {
