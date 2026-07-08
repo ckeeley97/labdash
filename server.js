@@ -28,6 +28,9 @@ const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const DEFAULT_CONFIG_PATH = path.join(ROOT, 'config.default.json');
 
+let PKG = { version: 'dev', built: null };
+try { PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')); } catch { /* keep defaults */ }
+
 /* ------------------------------------------------------------------ */
 /* Config storage                                                      */
 /* ------------------------------------------------------------------ */
@@ -407,6 +410,10 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname.startsWith('/api/') && !authed) {
       return sendJson(res, 401, { error: 'unauthorized' });
+    }
+
+    if (route === 'GET /api/version') {
+      return sendJson(res, 200, { version: PKG.version, built: PKG.built || null });
     }
 
     if (route === 'GET /api/config') {
