@@ -461,8 +461,6 @@ const WTYPES = {
     help: 'Embeds any page (Grafana panel, cameras, …). Tick "Proxy" to load a page that only exists on your LAN — LabDash fetches it for you and strips framing blocks. Leave it off for pages your browser can already reach.',
     client: true,
   },
-    client: true,
-  },
 };
 
 let widgetData = {}; // id -> {ok, type, data|error}
