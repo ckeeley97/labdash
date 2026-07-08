@@ -444,7 +444,7 @@ const WTYPES = {
     fields: [
       { k: 'text', label: 'Note', ph: 'Shopping list for the next node…', textarea: true },
     ],
-    help: 'A sticky note on your dashboard. Plain text, line breaks preserved.',
+    help: 'A sticky note on your dashboard. Just click the note text on the card to edit it in place — no need to come back here.',
     client: true,
   },
   iframe: {
@@ -627,6 +627,8 @@ function fillClientWidget(body, w) {
     const t = document.createElement('div');
     t.className = 'notes-text';
     t.textContent = o.text || '';
+    t.title = 'Click to edit';
+    t.addEventListener('click', () => startNoteEdit(t, w));
     body.appendChild(t);
   } else if (w.type === 'iframe') {
     if (o.mode === 'inline') {
@@ -653,6 +655,36 @@ function fillClientWidget(body, w) {
       });
     }
   }
+}
+
+/* Notes are edited right on the card — click, type, click away (or Ctrl+Enter). */
+function startNoteEdit(displayEl, w) {
+  if (displayEl.dataset.editing) return;
+  displayEl.dataset.editing = '1';
+  const ta = document.createElement('textarea');
+  ta.className = 'notes-edit';
+  ta.value = (w.options && w.options.text) || '';
+  ta.placeholder = 'Write a note…';
+  ta.rows = Math.min(12, Math.max(3, ta.value.split('\n').length + 1));
+  displayEl.replaceWith(ta);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+
+  let cancelled = false;
+  ta.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // keep the dashboard's / and E shortcuts out of the note
+    if (e.key === 'Escape') { cancelled = true; ta.blur(); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ta.blur();
+  });
+  ta.addEventListener('blur', () => {
+    const newText = ta.value;
+    if (!cancelled && newText !== ((w.options && w.options.text) || '')) {
+      if (!w.options) w.options = {};
+      w.options.text = newText;
+      save();
+    }
+    renderWidgets();
+  });
 }
 
 function openEmbed(w) {
