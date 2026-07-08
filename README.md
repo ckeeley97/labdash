@@ -81,7 +81,11 @@ Add widgets in edit mode (✎ → **+ Add widget**):
 | **Pi-hole** | v5: the API token from Settings → API. v6: an app password. The widget auto-detects which API answers. |
 | **qBittorrent** | Web UI URL + username/password. If login fails, check Options → Web UI (host allowlist / CSRF). |
 | **RSS feed** | Any RSS or Atom feed URL. |
-| **Notes / Embed** | No setup — notes store text in your config. Embeds show as a small card that opens the page in a fullscreen popup (or set it to inline); the page must allow iframes. |
+| **Notes / Embed** | No setup — notes store text in your config. Embeds show as a small card (custom icon, description, popup size) that opens the page in a popup or inline. Tick **Proxy through the LabDash server** to frame a page that only exists on your LAN, or one that sends `X-Frame-Options: DENY` — LabDash fetches it server-side and strips the framing block. |
+
+### About the embed proxy
+
+When "Proxy" is ticked, the iframe loads via `/api/proxy/<widget-id>/…` instead of hitting the target directly. LabDash (which sits on your LAN) fetches the page for you, so it works even when you reach LabDash from outside your network, and it strips `X-Frame-Options` / `Content-Security-Policy` so the page can be framed. The endpoint is behind your login and only proxies URLs you've configured in a widget. Root-relative asset links are rewritten and a small shim redirects the page's own `fetch`/`XHR` calls back through the proxy, so most dashboards and simple web UIs render fully. Not supported: WebSocket live-updates and target apps that need their own login cookies — those still work best when your browser can reach them directly (proxy off).
 
 Widget data is fetched by the LabDash server (60 s cache) — tokens stay server-side and self-signed certs are accepted.
 

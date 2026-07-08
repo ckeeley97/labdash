@@ -270,6 +270,116 @@ async function geocode(q) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Embed proxy — lets the LabDash server fetch an internal-only page   */
+/* on the browser's behalf, so it can be framed even when you're       */
+/* remote or the target sends X-Frame-Options: DENY. Authenticated and */
+/* limited to URLs that are actually configured in a widget.           */
+/* ------------------------------------------------------------------ */
+
+// Turn a URL the target emitted into one that stays inside the proxy.
+function rewriteProxyUrl(val, origin, prefix) {
+  val = String(val || '').trim();
+  if (!val) return val;
+  if (val.startsWith(origin)) return prefix + (val.slice(origin.length) || '/');
+  const originNoScheme = origin.replace(/^https?:/i, '');
+  if (val.startsWith('//')) {
+    return val.startsWith(originNoScheme) ? prefix + (val.slice(originNoScheme.length) || '/') : val;
+  }
+  // root-relative ("/foo") — but not a scheme ("data:", "http:") or anchor
+  if (val.startsWith('/')) return prefix + val;
+  return val; // relative or other-origin absolute — leave alone
+}
+
+const CSS_URL_RE = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+
+function rewriteProxyCss(css, origin, prefix) {
+  return css.replace(CSS_URL_RE, (m, q, val) => 'url(' + q + rewriteProxyUrl(val, origin, prefix) + q + ')');
+}
+
+function rewriteProxyHtml(html, origin, prefix) {
+  html = html.replace(/(\b(?:src|href|action|poster|formaction|data-src)\s*=\s*)(["'])(.*?)\2/gi,
+    (m, pre, q, val) => pre + q + rewriteProxyUrl(val, origin, prefix) + q);
+  html = html.replace(/(\bsrcset\s*=\s*)(["'])(.*?)\2/gi, (m, pre, q, val) => {
+    const rew = val.split(',').map((part) => {
+      const seg = part.trim().split(/\s+/);
+      if (seg[0]) seg[0] = rewriteProxyUrl(seg[0], origin, prefix);
+      return seg.join(' ');
+    }).join(', ');
+    return pre + q + rew + q;
+  });
+  html = rewriteProxyCss(html, origin, prefix);
+  // Runtime shim: rewrite root-relative fetch()/XHR back into the proxy so SPAs work.
+  const shim =
+    '<script>(function(){var P=' + JSON.stringify(prefix) + ',O=' + JSON.stringify(origin) + ';' +
+    'function fx(u){try{if(typeof u!=="string")return u;' +
+    'if(u.indexOf(O)===0)return P+(u.slice(O.length)||"/");' +
+    'if(u.charAt(0)==="/"&&u.charAt(1)!=="/")return P+u;return u;}catch(e){return u;}}' +
+    'var f=window.fetch;if(f)window.fetch=function(i,init){if(typeof i==="string")i=fx(i);' +
+    'else if(i&&i.url)try{i=new Request(fx(i.url),i);}catch(e){}return f.call(this,i,init);};' +
+    'var xo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){' +
+    'try{arguments[1]=fx(u);}catch(e){}return xo.apply(this,arguments);};})();</script>';
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + shim);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => m + shim);
+  return shim + html;
+}
+
+const STRIP_HEADERS = new Set([
+  'x-frame-options', 'content-security-policy', 'content-security-policy-report-only',
+  'content-length', 'transfer-encoding', 'strict-transport-security', 'set-cookie',
+  'content-encoding',
+]);
+
+function doProxy(req, res, targetUrl, origin, prefix) {
+  let tu;
+  try { tu = new URL(targetUrl); } catch { res.writeHead(400); return res.end('bad target url'); }
+  const mod = tu.protocol === 'https:' ? https : http;
+  const preq = mod.request(
+    {
+      method: req.method,
+      hostname: tu.hostname,
+      port: tu.port || (tu.protocol === 'https:' ? 443 : 80),
+      path: tu.pathname + tu.search,
+      rejectUnauthorized: false,
+      timeout: 15000,
+      headers: {
+        'User-Agent': req.headers['user-agent'] || 'labdash-proxy',
+        Accept: req.headers['accept'] || '*/*',
+        'Accept-Language': req.headers['accept-language'] || 'en',
+        // ask upstream not to gzip so we can rewrite text without inflating
+        'Accept-Encoding': 'identity',
+      },
+    },
+    (pres) => {
+      const ct = (pres.headers['content-type'] || '').toLowerCase();
+      const isHtml = ct.includes('text/html');
+      const isCss = ct.includes('text/css');
+      const out = {};
+      for (const [k, v] of Object.entries(pres.headers)) {
+        if (!STRIP_HEADERS.has(k.toLowerCase())) out[k] = v;
+      }
+      if (pres.headers.location) out['location'] = rewriteProxyUrl(pres.headers.location, origin, prefix);
+      if (!isHtml && !isCss) {
+        res.writeHead(pres.statusCode || 502, out);
+        return pres.pipe(res);
+      }
+      const chunks = [];
+      let size = 0;
+      pres.on('data', (c) => { size += c.length; if (size < 8 * 1024 * 1024) chunks.push(c); });
+      pres.on('end', () => {
+        let body = Buffer.concat(chunks).toString('utf8');
+        body = isHtml ? rewriteProxyHtml(body, origin, prefix) : rewriteProxyCss(body, origin, prefix);
+        out['content-type'] = pres.headers['content-type'];
+        res.writeHead(pres.statusCode || 200, out);
+        res.end(body);
+      });
+    }
+  );
+  preq.on('timeout', () => { preq.destroy(); if (!res.headersSent) { res.writeHead(504); res.end('proxy timeout'); } });
+  preq.on('error', (e) => { if (!res.headersSent) { res.writeHead(502); res.end('proxy error: ' + (e.code || e.message)); } });
+  req.pipe(preq);
+}
+
+/* ------------------------------------------------------------------ */
 /* HTTP server                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -410,6 +520,23 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname.startsWith('/api/') && !authed) {
       return sendJson(res, 401, { error: 'unauthorized' });
+    }
+
+    if (u.pathname.startsWith('/api/proxy/')) {
+      const cfg = readConfig();
+      const segs = u.pathname.split('/').filter(Boolean); // ['api','proxy','<id>', ...]
+      const widgetId = segs[2];
+      const w = (cfg.widgets || []).find((x) => x.id === widgetId);
+      if (!w || w.type !== 'iframe' || !(w.options && w.options.proxy)) {
+        res.writeHead(404); return res.end('proxy target not found');
+      }
+      let base;
+      try { base = new URL((w.options.url || '').trim()); } catch { res.writeHead(400); return res.end('widget has no valid url'); }
+      const origin = base.protocol + '//' + base.host;
+      const prefix = '/api/proxy/' + widgetId;
+      let restPath = u.pathname.slice(prefix.length) || '/';
+      if (!restPath.startsWith('/')) restPath = '/' + restPath;
+      return doProxy(req, res, origin + restPath + (u.search || ''), origin, prefix);
     }
 
     if (route === 'GET /api/version') {
