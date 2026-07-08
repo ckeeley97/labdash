@@ -302,6 +302,34 @@ function serveStatic(res, reqPath) {
   });
 }
 
+/* Raw (binary-safe) body reader for image uploads. */
+function readBodyRaw(req, limit = 15 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(new Error('file too large (max 15 MB)')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/* Identify an image by magic bytes — we never trust the client's mime type. */
+function sniffImage(buf) {
+  if (buf.length < 16) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.slice(0, 4).toString() === 'GIF8') return 'image/gif';
+  if (buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP') return 'image/webp';
+  if (buf.slice(4, 12).toString() === 'ftypavif') return 'image/avif';
+  return null;
+}
+
+const BG_PATH = () => path.join(DATA_DIR, 'background.img');
+
 function readBody(req, limit = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -407,6 +435,28 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/weather') {
       try { return sendJson(res, 200, await getWeather()); }
       catch (e) { return sendJson(res, 200, { enabled: true, error: e.message }); }
+    }
+
+    if (route === 'POST /api/background') {
+      let buf;
+      try { buf = await readBodyRaw(req); } catch (e) { return sendJson(res, 413, { error: e.message }); }
+      const mime = sniffImage(buf);
+      if (!mime) return sendJson(res, 400, { error: 'not a supported image — use PNG, JPEG, WebP, GIF or AVIF' });
+      fs.writeFileSync(BG_PATH(), buf);
+      return sendJson(res, 200, { ok: true, url: '/api/background?v=' + Date.now() });
+    }
+
+    if (route === 'GET /api/background') {
+      let buf;
+      try { buf = fs.readFileSync(BG_PATH()); } catch { res.writeHead(404); return res.end('no background uploaded'); }
+      const mime = sniffImage(buf) || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' });
+      return res.end(buf);
+    }
+
+    if (route === 'DELETE /api/background') {
+      try { fs.unlinkSync(BG_PATH()); } catch { /* nothing to remove */ }
+      return sendJson(res, 200, { ok: true });
     }
 
     if (route === 'GET /api/widgets') {

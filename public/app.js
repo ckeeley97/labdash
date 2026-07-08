@@ -767,6 +767,30 @@ async function geoSearch() {
     box.textContent = 'Lookup failed — is the server online?';
   }
 }
+$('#bg-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const status = $('#bg-upload-status');
+  status.textContent = 'Uploading…';
+  try {
+    const r = await fetch('/api/background', { method: 'POST', body: file });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || 'upload failed');
+    $('#form-settings').bgValue.value = out.url;
+    status.textContent = `Uploaded ${file.name} — press Save to apply.`;
+  } catch (err) {
+    status.textContent = '⚠ ' + err.message;
+  }
+  e.target.value = '';
+});
+
+$('#bg-remove').addEventListener('click', async () => {
+  try { await fetch('/api/background', { method: 'DELETE' }); } catch { /* ignore */ }
+  const f = $('#form-settings');
+  if (f.bgValue.value.startsWith('/api/background')) f.bgValue.value = '';
+  $('#bg-upload-status').textContent = 'Uploaded image removed — press Save.';
+});
+
 $('#form-settings').bgBlur.addEventListener('input', (e) => { $('#val-blur').textContent = e.target.value + 'px'; });
 $('#form-settings').bgDim.addEventListener('input', (e) => { $('#val-dim').textContent = e.target.value + '%'; });
 

@@ -345,6 +345,15 @@ dialog form textarea {
 dialog form textarea:focus { border-color: var(--accent); }
 
 input[type="range"] { width: 100%; margin-top: 8px; accent-color: var(--accent); }
+
+dialog form input[type="file"] {
+  display: block; width: 100%; margin-top: 5px; color: var(--text-2); font-size: .82rem;
+}
+dialog form input[type="file"]::file-selector-button {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  padding: 7px 14px; border-radius: 9px; cursor: pointer; margin-right: 10px; font-family: var(--font);
+}
+dialog form input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 .rangeval { color: var(--text-3); font-size: .75rem; }
 
 /* ---------- toast & footer ---------- */

@@ -6,6 +6,8 @@
 set -euo pipefail
 
 cd /opt/labdash
+# repo files are owned by the 'labdash' service user but updates run as root
+git config --global --add safe.directory /opt/labdash 2>/dev/null || true
 echo "[*] Pulling latest LabDash…"
 git fetch --depth 1 origin
 git reset --hard "origin/$(git rev-parse --abbrev-ref HEAD)"

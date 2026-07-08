@@ -148,6 +148,13 @@
       <label>Background — image URL or CSS gradient
         <input name="bgValue" placeholder="https://…/wall.jpg   or   linear-gradient(160deg,#0b1c2c,#1b0b2c)">
       </label>
+      <label>…or upload an image from this device
+        <input type="file" id="bg-file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif">
+      </label>
+      <div class="georow">
+        <span id="bg-upload-status" class="muted" style="flex:1"></span>
+        <button type="button" id="bg-remove" class="btn">Remove uploaded image</button>
+      </div>
       <div class="settings-grid">
         <label>Background blur <span class="rangeval" id="val-blur">0px</span>
           <input name="bgBlur" type="range" min="0" max="20" step="1">
