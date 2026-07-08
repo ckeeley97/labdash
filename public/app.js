@@ -663,6 +663,8 @@ function startNoteEdit(displayEl, w) {
   displayEl.dataset.editing = '1';
   const ta = document.createElement('textarea');
   ta.className = 'notes-edit';
+  // inline fallback styling so the editor looks right even if a stale style.css is cached
+  ta.style.cssText = 'width:100%;box-sizing:border-box;margin-top:6px;padding:6px 8px;background:var(--surface-2,#1d2430);color:var(--text,#e8ecf3);border:1px solid var(--accent,#4f9cf9);border-radius:8px;font-family:inherit;font-size:.86rem;line-height:1.45;resize:vertical;outline:none;';
   ta.value = (w.options && w.options.text) || '';
   ta.placeholder = 'Write a note…';
   ta.rows = Math.min(12, Math.max(3, ta.value.split('\n').length + 1));

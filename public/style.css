@@ -338,8 +338,18 @@ body.editing .widget-tools { display: flex; }
 }
 .widget .rsslist a:hover { color: var(--accent); }
 
-.widget .notes-text { font-size: .86rem; color: var(--text); white-space: pre-wrap; margin-top: 6px; line-height: 1.45; }
-.widget .notes-text:empty::before { content: 'Click ✎ in edit mode to write a note…'; color: var(--text-3); }
+.widget .notes-text {
+  font-size: .86rem; color: var(--text); white-space: pre-wrap; margin-top: 6px; line-height: 1.45;
+  cursor: text; border-radius: 8px; padding: 4px 6px; margin-left: -6px;
+}
+.widget .notes-text:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.widget .notes-text:empty::before { content: 'Click to write a note…'; color: var(--text-3); }
+.widget .notes-edit {
+  width: 100%; margin-top: 6px; padding: 6px 8px;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 8px;
+  font-family: var(--font); font-size: .86rem; line-height: 1.45; resize: vertical; outline: none;
+}
 
 .widget.wide { grid-column: 1 / -1; }
 .widget iframe { width: 100%; border: 0; border-radius: 8px; margin-top: 8px; background: #fff; }
