@@ -451,7 +451,10 @@ const WTYPES = {
     label: 'Embed',
     fields: [
       { k: 'url', label: 'Page URL to embed', ph: 'http://192.168.1.50:3000/d/abc/grafana-dash', req: true },
+      { k: 'icon', label: 'Icon — dashboard-icons name, emoji or image URL', ph: 'grafana  ·  📷  ·  https://…/icon.png' },
+      { k: 'description', label: 'Description (shown on the card)', ph: 'Node metrics' },
       { k: 'mode', label: 'Display', select: [['modal', 'Popup — small card, opens fullscreen (recommended)'], ['inline', 'Inline — embedded on the dashboard']] },
+      { k: 'size', label: 'Popup size', select: [['large', 'Large (default)'], ['compact', 'Compact window'], ['full', 'Almost fullscreen']] },
       { k: 'height', label: 'Height in pixels (inline mode only)', ph: '400' },
     ],
     help: 'Embeds any page (Grafana panel, cameras, …). The site must allow embedding (no X-Frame-Options: DENY).',
@@ -642,10 +645,17 @@ function fillClientWidget(body, w) {
       // modal mode: compact card, page loads only when opened
       const row = document.createElement('div');
       row.className = 'embed-open';
-      const go = document.createElement('span'); go.className = 'go'; go.textContent = '🗔';
-      const host = document.createElement('span'); host.className = 'host'; host.textContent = prettyHost(o.url) || o.url || '';
+      if (o.icon) {
+        row.appendChild(iconNode({ icon: o.icon, name: w.title || prettyHost(o.url) }));
+      } else {
+        const go = document.createElement('span'); go.className = 'go'; go.textContent = '🗔';
+        row.appendChild(go);
+      }
+      const txt = document.createElement('span');
+      txt.className = 'host';
+      txt.textContent = o.description || prettyHost(o.url) || o.url || '';
       const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = 'click to open ⤢';
-      row.append(go, host, hint);
+      row.append(txt, hint);
       body.appendChild(row);
       const card = body.closest('.widget');
       card.classList.add('embed-card');
@@ -691,10 +701,21 @@ function startNoteEdit(displayEl, w) {
 
 function openEmbed(w) {
   const o = w.options || {};
-  $('#embed-title').textContent = w.title || prettyHost(o.url) || 'Embed';
+  const dlg = $('#modal-embed');
+  dlg.classList.remove('embed-compact', 'embed-full');
+  if (o.size === 'compact') dlg.classList.add('embed-compact');
+  if (o.size === 'full') dlg.classList.add('embed-full');
+  const title = $('#embed-title');
+  title.textContent = '';
+  if (o.icon) {
+    const ic = iconNode({ icon: o.icon, name: w.title || prettyHost(o.url) });
+    ic.classList.add('ic-mini');
+    title.appendChild(ic);
+  }
+  title.appendChild(document.createTextNode(w.title || prettyHost(o.url) || 'Embed'));
   $('#embed-newtab').href = o.url || '#';
   $('#embed-frame').src = o.url || 'about:blank';
-  $('#modal-embed').showModal();
+  dlg.showModal();
 }
 
 $('#embed-close').addEventListener('click', () => $('#modal-embed').close());
