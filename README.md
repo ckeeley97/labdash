@@ -10,7 +10,9 @@ A lightweight, self-hosted homelab dashboard built to live in a Proxmox LXC cont
 - **Live status checks** — green/red dot per service, tolerant of self-signed certs, any HTTP response (even 401/403) counts as up
 - **System stats** — CPU, memory, disk and uptime of the container with severity-colored meters
 - **Clock, weather and search** — weather via Open-Meteo (free, no API key), search bar that filters your tiles and falls back to the web
-- **Integration widgets** — live cards for **Proxmox** (node CPU/RAM, VM & LXC counts, uptime — via an API token), **Uptime Kuma** (monitors up/down via a status page), and **Speedtest Tracker** (latest down/up/ping). All fetched server-side, so tokens never reach the browser and there are no CORS headaches.
+- **Integration widgets** — live cards for **Proxmox** (node CPU/RAM, VM & LXC counts, uptime — via an API token), **Uptime Kuma** (monitors up/down via a status page), **Speedtest Tracker** (latest down/up/ping), **Pi-hole** (queries & blocked today, v5 and v6 APIs), and **qBittorrent** (transfer speeds, active torrents). All fetched server-side, so tokens never reach the browser and there are no CORS headaches.
+- **Content widgets** — **RSS/Atom feeds**, sticky **Notes**, and **iframe embeds** (Grafana panels, camera feeds, anything that allows embedding)
+- **Custom backgrounds & CSS** — set a wallpaper image URL or CSS gradient with blur/dim sliders (cards go frosted-glass automatically), plus a custom CSS box for anything else — Homarr-style theming without touching code
 - **Password protected** — first visit asks you to set a password; sessions survive restarts; change the password anytime from Settings (this signs out every other device); login is rate-limited against guessing
 - **Full in-browser editor** — pencil icon toggles edit mode: add/rename/delete groups, add/edit/delete services and widgets, drag tiles between groups; gear icon opens settings (title, dark/light theme, accent color, search engine, widget toggles, weather location, change password)
 - **Keyboard friendly** — `/` focuses search, `E` toggles edit mode, `Enter` opens the first match
@@ -76,6 +78,10 @@ Add widgets in edit mode (✎ → **+ Add widget**):
 | **Proxmox node** | An API token: Datacenter → Permissions → API Tokens. Untick *Privilege Separation*, or grant the token the `PVEAuditor` role on `/`. Enter the token as ID (`root@pam!labdash`) + secret. |
 | **Uptime Kuma** | A status page: ☰ → Status Pages → add your monitors. The widget takes your Kuma URL and the page's slug. |
 | **Speedtest Tracker** | The app URL and an API token (Settings → API Tokens). Older versions work without a token. |
+| **Pi-hole** | v5: the API token from Settings → API. v6: an app password. The widget auto-detects which API answers. |
+| **qBittorrent** | Web UI URL + username/password. If login fails, check Options → Web UI (host allowlist / CSRF). |
+| **RSS feed** | Any RSS or Atom feed URL. |
+| **Notes / Embed** | No setup — notes store text in your config; embed shows any page that allows iframes. |
 
 Widget data is fetched by the LabDash server (60 s cache) — tokens stay server-side and self-signed certs are accepted.
 

@@ -9,6 +9,9 @@
 </head>
 <body data-theme="dark">
 
+<div id="bglayer" aria-hidden="true"></div>
+<div id="bgdim" aria-hidden="true"></div>
+
 <div id="app">
   <header id="topbar">
     <div class="brand">
@@ -88,6 +91,11 @@
         <option value="proxmox">Proxmox node</option>
         <option value="uptimekuma">Uptime Kuma</option>
         <option value="speedtest">Speedtest Tracker</option>
+        <option value="pihole">Pi-hole</option>
+        <option value="qbittorrent">qBittorrent</option>
+        <option value="rss">RSS feed</option>
+        <option value="notes">Notes</option>
+        <option value="iframe">Embed (iframe)</option>
       </select>
     </label>
     <label>Title (optional) <input name="title" maxlength="40" placeholder="shown on the card"></label>
@@ -134,6 +142,24 @@
       <label class="check"><input type="checkbox" name="showStats"> Show system stats</label>
       <label class="check"><input type="checkbox" name="showSearch"> Show search bar</label>
     </div>
+
+    <fieldset class="weatherbox">
+      <legend>Appearance</legend>
+      <label>Background — image URL or CSS gradient
+        <input name="bgValue" placeholder="https://…/wall.jpg   or   linear-gradient(160deg,#0b1c2c,#1b0b2c)">
+      </label>
+      <div class="settings-grid">
+        <label>Background blur <span class="rangeval" id="val-blur">0px</span>
+          <input name="bgBlur" type="range" min="0" max="20" step="1">
+        </label>
+        <label>Background dim <span class="rangeval" id="val-dim">0%</span>
+          <input name="bgDim" type="range" min="0" max="85" step="5">
+        </label>
+      </div>
+      <label>Custom CSS
+        <textarea name="customCss" rows="3" spellcheck="false" placeholder=".tile { border-radius: 4px }  /* applied live, saved with your config */"></textarea>
+      </label>
+    </fieldset>
 
     <fieldset class="weatherbox">
       <legend>Weather location</legend>

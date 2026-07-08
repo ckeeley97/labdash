@@ -10,6 +10,8 @@
     "showSearch": true,
     "searchEngine": "https://duckduckgo.com/?q=",
     "openInNewTab": true,
+    "background": { "value": "", "blur": 0, "dim": 0 },
+    "customCss": "",
     "weather": {
       "name": "",
       "lat": null,

@@ -78,6 +78,29 @@ function applySettings() {
   $('#searchwrap').hidden = !s.showSearch;
   $('#stats').hidden = !s.showStats;
   if (!s.showWeather) $('#weather').hidden = true;
+
+  // custom background: an image URL or any CSS background value (e.g. a gradient)
+  const bg = s.background || {};
+  const v = (bg.value || '').trim();
+  const layer = $('#bglayer');
+  if (v) {
+    layer.style.backgroundImage = /^(https?:)?\/\//.test(v) || v.startsWith('/') ? `url("${v}")` : v;
+    document.documentElement.style.setProperty('--bg-blur', (bg.blur || 0) + 'px');
+    document.documentElement.style.setProperty('--bg-dim', (bg.dim || 0) / 100);
+    document.body.classList.add('has-bg');
+  } else {
+    layer.style.backgroundImage = '';
+    document.body.classList.remove('has-bg');
+  }
+
+  // custom CSS, applied last so it can override anything
+  let styleEl = document.getElementById('customcss');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'customcss';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = s.customCss || '';
 }
 
 /* ---------------- icons ---------------- */
@@ -391,6 +414,48 @@ const WTYPES = {
     ],
     help: 'Works with Speedtest Tracker (alexjustesen). Create an API token under Settings → API Tokens.',
   },
+  pihole: {
+    label: 'Pi-hole',
+    fields: [
+      { k: 'url', label: 'Pi-hole URL', ph: 'http://192.168.1.2', req: true },
+      { k: 'token', label: 'API token / app password', ph: '', secret: true },
+    ],
+    help: 'v5: Settings → API → Show API token. v6: create an app password in Settings → Web interface/API. Both work.',
+  },
+  qbittorrent: {
+    label: 'qBittorrent',
+    fields: [
+      { k: 'url', label: 'qBittorrent Web UI URL', ph: 'http://192.168.1.25:8081', req: true },
+      { k: 'username', label: 'Username', ph: 'admin' },
+      { k: 'password', label: 'Password', ph: '', secret: true },
+    ],
+    help: 'Uses the Web UI API. If login fails, check Options → Web UI → allowed hosts / CSRF settings.',
+  },
+  rss: {
+    label: 'RSS feed',
+    fields: [
+      { k: 'url', label: 'Feed URL', ph: 'https://www.proxmox.com/en/rss', req: true },
+      { k: 'count', label: 'Items to show', ph: '5' },
+    ],
+    help: 'Any RSS or Atom feed.',
+  },
+  notes: {
+    label: 'Notes',
+    fields: [
+      { k: 'text', label: 'Note', ph: 'Shopping list for the next node…', textarea: true },
+    ],
+    help: 'A sticky note on your dashboard. Plain text, line breaks preserved.',
+    client: true,
+  },
+  iframe: {
+    label: 'Embed',
+    fields: [
+      { k: 'url', label: 'Page URL to embed', ph: 'http://192.168.1.50:3000/d/abc/grafana-dash', req: true },
+      { k: 'height', label: 'Height in pixels', ph: '400' },
+    ],
+    help: 'Embeds any page (Grafana panel, cameras, …). The site must allow embedding (no X-Frame-Options: DENY).',
+    client: true,
+  },
 };
 
 let widgetData = {}; // id -> {ok, type, data|error}
@@ -409,23 +474,33 @@ function renderWidgets() {
     const head = document.createElement('div');
     head.className = 'whead';
     const name = document.createElement('span');
-    name.textContent = w.title || spec.label;
-    const kind = document.createElement('span');
-    kind.className = 'wtype';
-    kind.textContent = spec.label;
-    head.append(name, kind);
+    const wd = widgetData[w.id];
+    name.textContent = w.title || (w.type === 'rss' && wd && wd.ok && wd.data.feedTitle) || spec.label;
+    head.append(name);
+    if (name.textContent !== spec.label) {
+      const kind = document.createElement('span');
+      kind.className = 'wtype';
+      kind.textContent = spec.label;
+      head.append(kind);
+    }
     card.appendChild(head);
+
+    if (w.type === 'iframe') card.classList.add('wide');
 
     const body = document.createElement('div');
     body.className = 'wbody';
-    const d = widgetData[w.id];
-    if (!d) {
-      body.innerHTML = '<div class="sub">Loading…</div>';
-    } else if (!d.ok) {
-      body.innerHTML = '<div class="werr"></div>';
-      body.querySelector('.werr').textContent = '⚠ ' + d.error;
+    if (spec.client) {
+      fillClientWidget(body, w);
     } else {
-      fillWidgetBody(body, w.type, d.data);
+      const d = widgetData[w.id];
+      if (!d) {
+        body.innerHTML = '<div class="sub">Loading…</div>';
+      } else if (!d.ok) {
+        body.innerHTML = '<div class="werr"></div>';
+        body.querySelector('.werr').textContent = '⚠ ' + d.error;
+      } else {
+        fillWidgetBody(body, w.type, d.data);
+      }
     }
     card.appendChild(body);
 
@@ -501,12 +576,71 @@ function fillWidgetBody(body, type, d) {
       sub.textContent = 'Last run: ' + new Date(d.at).toLocaleString();
       body.appendChild(sub);
     }
+  } else if (type === 'pihole') {
+    const big = document.createElement('div');
+    big.className = 'big';
+    big.textContent = `${(d.blocked ?? 0).toLocaleString()} blocked`;
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = `${(d.pct || 0).toFixed(1)}% of ${(d.queries ?? 0).toLocaleString()} queries today`;
+    body.append(big, sub, meterEl(d.pct || 0));
+    const st = document.createElement('div');
+    st.className = 'sub';
+    st.textContent = `${(d.domains ?? 0).toLocaleString()} domains on blocklist · ${d.status}`;
+    body.appendChild(st);
+  } else if (type === 'qbittorrent') {
+    const fmtRate = (b) => { const m = b / 1048576; return m >= 1 ? m.toFixed(1) + ' MB/s' : (b / 1024).toFixed(0) + ' KB/s'; };
+    const cols = document.createElement('div');
+    cols.className = 'speedcols';
+    const col = (lbl, val) => {
+      const c = document.createElement('div'); c.className = 'col';
+      const b = document.createElement('div'); b.className = 'big'; b.textContent = val;
+      const l = document.createElement('div'); l.className = 'lbl'; l.textContent = lbl;
+      c.append(b, l); return c;
+    };
+    cols.append(col('↓ down', fmtRate(d.dl)), col('↑ up', fmtRate(d.ul)));
+    body.appendChild(cols);
+    if (d.active != null) {
+      const sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.textContent = `${d.active} active torrent${d.active === 1 ? '' : 's'}`;
+      body.appendChild(sub);
+    }
+  } else if (type === 'rss') {
+    const list = document.createElement('div');
+    list.className = 'rsslist';
+    d.items.forEach((it) => {
+      const a = document.createElement('a');
+      a.textContent = '· ' + it.title;
+      a.title = it.title + (it.date ? ` — ${it.date}` : '');
+      if (it.link) { a.href = it.link; a.target = '_blank'; a.rel = 'noopener'; }
+      list.appendChild(a);
+    });
+    body.appendChild(list);
+  }
+}
+
+function fillClientWidget(body, w) {
+  const o = w.options || {};
+  if (w.type === 'notes') {
+    const t = document.createElement('div');
+    t.className = 'notes-text';
+    t.textContent = o.text || '';
+    body.appendChild(t);
+  } else if (w.type === 'iframe') {
+    const fr = document.createElement('iframe');
+    fr.src = o.url || 'about:blank';
+    fr.height = Math.max(120, parseInt(o.height, 10) || 400);
+    fr.loading = 'lazy';
+    fr.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+    body.appendChild(fr);
   }
 }
 
 async function pollWidgets(force) {
-  if (!(cfg.widgets || []).length) { renderWidgets(); return; }
   renderWidgets(); // show cards (with cached/loading state) immediately
+  const needsServer = (cfg.widgets || []).some((w) => WTYPES[w.type] && !WTYPES[w.type].client);
+  if (!needsServer) return;
   try {
     widgetData = await apiGet('/api/widgets' + (force ? '?t=' + Date.now() : ''));
     renderWidgets();
@@ -524,8 +658,14 @@ function buildWidgetFields(type, values) {
   spec.fields.forEach((f) => {
     const lab = document.createElement('label');
     lab.textContent = f.label + ' ';
-    const inp = document.createElement('input');
-    inp.type = f.secret ? 'password' : 'text';
+    let inp;
+    if (f.textarea) {
+      inp = document.createElement('textarea');
+      inp.rows = 5;
+    } else {
+      inp = document.createElement('input');
+      inp.type = f.secret ? 'password' : 'text';
+    }
     inp.name = 'opt_' + f.k;
     inp.placeholder = f.ph || '';
     if (f.req) inp.required = true;
@@ -587,6 +727,13 @@ $('#btn-settings').addEventListener('click', () => {
   f.showWeather.checked = !!s.showWeather;
   f.showStats.checked = !!s.showStats;
   f.showSearch.checked = !!s.showSearch;
+  const bg = s.background || {};
+  f.bgValue.value = bg.value || '';
+  f.bgBlur.value = bg.blur || 0;
+  f.bgDim.value = bg.dim || 0;
+  $('#val-blur').textContent = (bg.blur || 0) + 'px';
+  $('#val-dim').textContent = (bg.dim || 0) + '%';
+  f.customCss.value = s.customCss || '';
   pendingWeather = null;
   $('#geo-results').textContent = '';
   $('#geo-q').value = '';
@@ -620,6 +767,9 @@ async function geoSearch() {
     box.textContent = 'Lookup failed — is the server online?';
   }
 }
+$('#form-settings').bgBlur.addEventListener('input', (e) => { $('#val-blur').textContent = e.target.value + 'px'; });
+$('#form-settings').bgDim.addEventListener('input', (e) => { $('#val-dim').textContent = e.target.value + '%'; });
+
 $('#geo-go').addEventListener('click', geoSearch);
 $('#geo-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); geoSearch(); } });
 
@@ -653,6 +803,12 @@ $('#modal-settings').addEventListener('close', async () => {
   s.showWeather = f.showWeather.checked;
   s.showStats = f.showStats.checked;
   s.showSearch = f.showSearch.checked;
+  s.background = {
+    value: f.bgValue.value.trim(),
+    blur: parseInt(f.bgBlur.value, 10) || 0,
+    dim: parseInt(f.bgDim.value, 10) || 0,
+  };
+  s.customCss = f.customCss.value;
   if (pendingWeather) {
     s.weather = { name: pendingWeather.name, lat: pendingWeather.lat, lon: pendingWeather.lon };
   }

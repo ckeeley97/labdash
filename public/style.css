@@ -52,6 +52,19 @@ body {
   min-height: 100vh;
 }
 
+/* custom background layers (set from Settings → Appearance) */
+#bglayer {
+  position: fixed; inset: -40px; z-index: -2;
+  background-size: cover; background-position: center;
+  filter: blur(var(--bg-blur, 0px));
+}
+#bgdim { position: fixed; inset: 0; z-index: -1; background: rgba(4, 6, 10, var(--bg-dim, 0)); }
+body.has-bg { background-image: none; }
+body.has-bg .tile, body.has-bg .stat, body.has-bg .widget, body.has-bg .chip, body.has-bg .iconbtn, body.has-bg #search {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+
 #app { max-width: 1240px; margin: 0 auto; padding: 28px 24px 60px; }
 
 /* ---------- top bar ---------- */
@@ -308,6 +321,31 @@ dialog menu { display: flex; justify-content: flex-end; gap: 10px; margin: 18px 
 
 .widget-tools { position: absolute; right: 8px; top: 8px; display: none; gap: 4px; }
 body.editing .widget-tools { display: flex; }
+
+.widget .rsslist { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
+.widget .rsslist a {
+  color: var(--text); text-decoration: none; font-size: .84rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+}
+.widget .rsslist a:hover { color: var(--accent); }
+
+.widget .notes-text { font-size: .86rem; color: var(--text); white-space: pre-wrap; margin-top: 6px; line-height: 1.45; }
+.widget .notes-text:empty::before { content: 'Click ✎ in edit mode to write a note…'; color: var(--text-3); }
+
+.widget.wide { grid-column: 1 / -1; }
+.widget iframe { width: 100%; border: 0; border-radius: 8px; margin-top: 8px; background: #fff; }
+
+dialog form textarea {
+  display: block; width: 100%; margin-top: 5px; padding: 9px 12px;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 9px; font-size: .88rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  outline: none; resize: vertical;
+}
+dialog form textarea:focus { border-color: var(--accent); }
+
+input[type="range"] { width: 100%; margin-top: 8px; accent-color: var(--accent); }
+.rangeval { color: var(--text-3); font-size: .75rem; }
 
 /* ---------- toast & footer ---------- */
 
