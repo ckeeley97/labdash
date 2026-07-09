@@ -711,25 +711,128 @@ function startNoteEdit(displayEl, w) {
   });
 }
 
+/* ---------------- embed viewer (tabbed, minimizable) ----------------
+   Every opened embed becomes a tab with its own iframe that stays loaded.
+   Switching tabs just toggles which iframe is visible, so nothing reloads.
+   Minimizing closes the dialog but keeps the iframes in the DOM (and a
+   restore pill), so you can pop back into any of them with state intact. */
+const embedState = { tabs: [], active: null, minimizing: false };
+
 function openEmbed(w) {
-  const o = w.options || {};
+  const id = String(w.id || w.title || 'embed');
+  const dlg = $('#modal-embed');
+  let tab = embedState.tabs.find((t) => t.id === id);
+  if (!tab) {
+    const o = w.options || {};
+    const label = w.title || prettyHost(o.url) || 'Embed';
+
+    const frame = document.createElement('iframe');
+    frame.className = 'embed-frame';
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+    frame.src = embedSrc(w);
+    $('#embed-frames').appendChild(frame);
+
+    const tabEl = document.createElement('div');
+    tabEl.className = 'embed-tab';
+    tabEl.setAttribute('role', 'tab');
+    tabEl.title = label;
+    if (o.icon) {
+      const ic = iconNode({ icon: o.icon, name: label });
+      ic.classList.add('ic-mini');
+      tabEl.appendChild(ic);
+    }
+    const lab = document.createElement('span');
+    lab.className = 'embed-tab-label';
+    lab.textContent = label;
+    tabEl.appendChild(lab);
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'embed-tab-x';
+    x.textContent = '✕';
+    x.title = 'Close this tab';
+    x.addEventListener('click', (e) => { e.stopPropagation(); closeEmbedTab(id); });
+    tabEl.appendChild(x);
+    tabEl.addEventListener('click', () => activateEmbed(id));
+    $('#embed-tabs').appendChild(tabEl);
+
+    tab = { id, frame, tabEl, size: o.size || '' };
+    embedState.tabs.push(tab);
+  }
+  activateEmbed(id);
+  if (embedState.minimizing || !dlg.open) {
+    embedState.minimizing = false;
+    hideEmbedRestore();
+    if (!dlg.open) dlg.showModal();
+  }
+}
+
+function activateEmbed(id) {
+  embedState.active = id;
   const dlg = $('#modal-embed');
   dlg.classList.remove('embed-compact', 'embed-full');
-  if (o.size === 'compact') dlg.classList.add('embed-compact');
-  if (o.size === 'full') dlg.classList.add('embed-full');
-  const title = $('#embed-title');
-  title.textContent = '';
-  if (o.icon) {
-    const ic = iconNode({ icon: o.icon, name: w.title || prettyHost(o.url) });
-    ic.classList.add('ic-mini');
-    title.appendChild(ic);
+  for (const t of embedState.tabs) {
+    const on = t.id === id;
+    t.frame.classList.toggle('active', on);
+    t.tabEl.classList.toggle('active', on);
+    if (on) {
+      if (t.size === 'compact') dlg.classList.add('embed-compact');
+      if (t.size === 'full') dlg.classList.add('embed-full');
+      const src = t.frame.getAttribute('src') || '';
+      $('#embed-newtab').href = (src && src !== 'about:blank') ? src : '#';
+    }
   }
-  title.appendChild(document.createTextNode(w.title || prettyHost(o.url) || 'Embed'));
-  const src = embedSrc(w);
-  $('#embed-newtab').href = src === 'about:blank' ? '#' : src;
-  $('#embed-frame').src = src;
-  dlg.showModal();
 }
+
+function closeEmbedTab(id) {
+  const i = embedState.tabs.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  const [t] = embedState.tabs.splice(i, 1);
+  t.frame.remove();
+  t.tabEl.remove();
+  if (!embedState.tabs.length) { closeEmbedAll(); return; }
+  if (embedState.active === id) {
+    const next = embedState.tabs[i] || embedState.tabs[i - 1] || embedState.tabs[0];
+    activateEmbed(next.id);
+  }
+  updateEmbedRestore();
+}
+
+function minimizeEmbed() {
+  if (!embedState.tabs.length) return;
+  embedState.minimizing = true;
+  $('#modal-embed').close();
+}
+
+function restoreEmbed() {
+  const dlg = $('#modal-embed');
+  embedState.minimizing = false;
+  hideEmbedRestore();
+  if (!dlg.open) dlg.showModal();
+}
+
+function closeEmbedAll() {
+  embedState.minimizing = false;
+  const dlg = $('#modal-embed');
+  if (dlg.open) dlg.close(); // triggers clearEmbeds via the close handler
+  else clearEmbeds();
+}
+
+function clearEmbeds() {
+  $('#embed-frames').innerHTML = '';
+  $('#embed-tabs').innerHTML = '';
+  embedState.tabs = [];
+  embedState.active = null;
+  hideEmbedRestore();
+}
+
+function showEmbedRestore() {
+  const b = $('#embed-restore');
+  const n = embedState.tabs.length;
+  b.textContent = '◱ ' + n + (n === 1 ? ' embed' : ' embeds');
+  b.hidden = false;
+}
+function updateEmbedRestore() { if (!$('#embed-restore').hidden) showEmbedRestore(); }
+function hideEmbedRestore() { $('#embed-restore').hidden = true; }
 
 /* Where an embed's iframe actually points: the raw URL, or — when the
    "Proxy" box is ticked — through /api/proxy/<id> so the LabDash server
@@ -756,8 +859,15 @@ function embedSrc(w) {
   }
 }
 
-$('#embed-close').addEventListener('click', () => $('#modal-embed').close());
-$('#modal-embed').addEventListener('close', () => { $('#embed-frame').src = 'about:blank'; });
+$('#embed-close').addEventListener('click', closeEmbedAll);
+$('#embed-min').addEventListener('click', minimizeEmbed);
+$('#embed-restore').addEventListener('click', restoreEmbed);
+// Esc should minimize (keep tabs loaded) rather than destroy everything.
+$('#modal-embed').addEventListener('cancel', (e) => { e.preventDefault(); minimizeEmbed(); });
+$('#modal-embed').addEventListener('close', () => {
+  if (embedState.minimizing) { embedState.minimizing = false; showEmbedRestore(); return; }
+  clearEmbeds();
+});
 
 async function pollWidgets(force) {
   renderWidgets(); // show cards (with cached/loading state) immediately

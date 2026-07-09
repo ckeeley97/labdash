@@ -204,15 +204,19 @@
   </form>
 </dialog>
 
-<!-- ============ Embed viewer (modal iframe) ============ -->
+<!-- ============ Embed viewer (tabbed modal iframe) ============ -->
 <dialog id="modal-embed" class="embed-dialog">
   <div class="embed-head">
-    <span id="embed-title"></span>
-    <a id="embed-newtab" href="#" target="_blank" rel="noopener" title="Open in a new tab">⧉ new tab</a>
-    <button type="button" id="embed-close" class="minibtn" title="Close (Esc)">✕</button>
+    <div id="embed-tabs" class="embed-tabs" role="tablist"></div>
+    <div class="embed-head-actions">
+      <a id="embed-newtab" href="#" target="_blank" rel="noopener" title="Open the active tab in a real browser tab">⧉</a>
+      <button type="button" id="embed-min" class="minibtn" title="Minimize — keeps everything loaded (Esc)">—</button>
+      <button type="button" id="embed-close" class="minibtn" title="Close all tabs">✕</button>
+    </div>
   </div>
-  <iframe id="embed-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+  <div id="embed-frames" class="embed-frames"></div>
 </dialog>
+<button type="button" id="embed-restore" class="embed-restore" hidden></button>
 
 <div id="toast" role="status"></div>
 
