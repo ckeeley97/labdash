@@ -58,9 +58,10 @@ const { RingApi } = require('ring-client-api');
   api.onRefreshTokenUpdated.subscribe((d) => { if (d && d.newRefreshToken) latest = d.newRefreshToken; });
   const cams = await api.getCameras();
   await new Promise((r) => setTimeout(r, 500));
-  // URL-encode the token: it's standard base64 (+ / =) and goes into a URL
-  // query, where go2rtc URL-decodes it — raw + would become a space.
-  process.stdout.write(JSON.stringify({ token: encodeURIComponent(latest), cameras: cams.map((c) => ({ id: c.id, name: c.name })) }));
+  // go2rtc's ring source needs refresh_token + camera_id (numeric) + device_id
+  // (a separate string) — all three, or it returns "ring: wrong query".
+  // The token is URL-encoded because go2rtc runs url.QueryUnescape on it.
+  process.stdout.write(JSON.stringify({ token: encodeURIComponent(latest), cameras: cams.map((c) => ({ camera_id: c.id, device_id: (c.data && c.data.device_id) || '', name: c.name })) }));
   process.exit(0);
 })().catch((e) => { process.stderr.write('RINGERR:' + (e && e.message ? e.message : String(e))); process.exit(1); });
 JS
@@ -78,10 +79,11 @@ COUNT=$(printf '%s' "$OUT" | jq '.cameras | length')
   echo "api:"
   echo "  listen: \":${PORT}\""
   echo "streams:"
-  printf '%s' "$OUT" | jq -r '.cameras[] | "\(.id)\t\(.name)"' | while IFS=$'\t' read -r id name; do
+  printf '%s' "$OUT" | jq -r '.cameras[] | "\(.camera_id)\t\(.device_id)\t\(.name)"' | while IFS=$'\t' read -r cid did name; do
     slug=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')
-    [ -n "$slug" ] || slug="cam_${id}"
-    echo "  ${slug}: \"ring:?device_id=${id}&refresh_token=${NEWTOKEN}\""
+    [ -n "$slug" ] || slug="cam_${cid}"
+    [ -n "$did" ] || echo "  WARNING: no device_id for '${name}' — go2rtc will reject it" >&2
+    echo "  ${slug}: \"ring:?refresh_token=${NEWTOKEN}&camera_id=${cid}&device_id=${did}\""
   done
 } > "$YAML"
 
