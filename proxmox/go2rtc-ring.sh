@@ -20,7 +20,7 @@ set -euo pipefail
 
 # ------------------------- configurable defaults ---------------------------
 CT_HOSTNAME="${CT_HOSTNAME:-go2rtc}"
-DISK="${DISK:-2}"            # GB
+DISK="${DISK:-10}"           # GB
 RAM="${RAM:-512}"           # MB
 SWAP="${SWAP:-256}"         # MB
 CORES="${CORES:-1}"
