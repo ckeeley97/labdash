@@ -189,11 +189,19 @@ GET_TOKEN_B64=$(base64 -w0 <<'GTK'
 # Copy the printed token into go2rtc's web UI (Add -> Ring, refresh-token field),
 # or into /opt/go2rtc/go2rtc.yaml as:  streams: { cam: "ring:?refresh_token=TOKEN" }
 set -euo pipefail
-if ! command -v npx >/dev/null 2>&1; then
-  echo "Installing Node.js (one-time, ~30s)…"
+# ring-client-api (via undici) needs Node 20+ — Debian's apt ships Node 18,
+# which crashes with "ReferenceError: File is not defined". Ensure Node >= 20.
+need_node=1
+if command -v node >/dev/null 2>&1; then
+  major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+  [ "$major" -ge 20 ] 2>/dev/null && need_node=0
+fi
+if [ "$need_node" = 1 ]; then
+  echo "Installing Node.js 22 (one-time)…"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq nodejs npm >/dev/null
+  apt-get remove -y -qq nodejs npm >/dev/null 2>&1 || true
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
+  apt-get install -y -qq nodejs >/dev/null
 fi
 echo "Starting Ring sign-in — have your 2FA method (SMS/email) ready."
 echo
