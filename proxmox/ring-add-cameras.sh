@@ -58,7 +58,9 @@ const { RingApi } = require('ring-client-api');
   api.onRefreshTokenUpdated.subscribe((d) => { if (d && d.newRefreshToken) latest = d.newRefreshToken; });
   const cams = await api.getCameras();
   await new Promise((r) => setTimeout(r, 500));
-  process.stdout.write(JSON.stringify({ token: latest, cameras: cams.map((c) => ({ id: c.id, name: c.name })) }));
+  // URL-encode the token: it's standard base64 (+ / =) and goes into a URL
+  // query, where go2rtc URL-decodes it — raw + would become a space.
+  process.stdout.write(JSON.stringify({ token: encodeURIComponent(latest), cameras: cams.map((c) => ({ id: c.id, name: c.name })) }));
   process.exit(0);
 })().catch((e) => { process.stderr.write('RINGERR:' + (e && e.message ? e.message : String(e))); process.exit(1); });
 JS
