@@ -917,7 +917,7 @@ function clearEmbeds() {
 function showEmbedRestore() {
   const b = $('#embed-restore');
   const n = embedState.tabs.length;
-  b.textContent = '◱ ' + n + (n === 1 ? ' embed' : ' embeds');
+  b.textContent = '◱  Restore (' + n + ')';
   b.hidden = false;
 }
 function updateEmbedRestore() { if (!$('#embed-restore').hidden) showEmbedRestore(); }
