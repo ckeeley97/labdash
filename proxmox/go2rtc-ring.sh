@@ -213,7 +213,7 @@ msg "Installing go2rtc inside the container…"
 pct exec "$CTID" -- bash -euo pipefail -c "
   export DEBIAN_FRONTEND=noninteractive
   apt-get -qq update
-  apt-get -qq install -y curl ca-certificates jq >/dev/null
+  apt-get -qq install -y curl ca-certificates jq ffmpeg >/dev/null
 
   ARCH=\$(uname -m)
   case \"\$ARCH\" in
