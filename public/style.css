@@ -391,7 +391,7 @@ body.editing .widget-tools { display: flex; }
 .embed-head .ic.ic-mini .monogram { font-size: .55rem; font-weight: 700; color: var(--accent); }
 
 /* tab strip */
-.embed-tabs { display: flex; align-items: flex-end; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; padding-bottom: 0; }
+.embed-tabs { display: flex; align-items: flex-end; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding-bottom: 0; }
 .embed-tab {
   display: flex; align-items: center; gap: 7px;
   padding: 7px 8px 7px 11px; border: 1px solid var(--border); border-bottom: none;
