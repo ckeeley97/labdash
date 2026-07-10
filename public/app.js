@@ -472,6 +472,17 @@ const WTYPES = {
     help: 'Embeds any page (Grafana panel, cameras, …). Tick "Proxy" to load a page that only exists on your LAN — LabDash fetches it for you and strips framing blocks. Leave it off for pages your browser can already reach.',
     client: true,
   },
+  cameras: {
+    label: 'Cameras',
+    fields: [
+      { k: 'list', label: 'Cameras — one per line:  Name | URL | live-or-snapshot', textarea: true,
+        ph: 'Front Door | http://192.168.0.60:1984/stream.html?src=front | live\nBackyard | http://192.168.0.60:1984/api/frame.jpeg?src=backyard | snapshot' },
+      { k: 'columns', label: 'Columns', select: [['2', '2'], ['1', '1'], ['3', '3'], ['4', '4']] },
+      { k: 'refresh', label: 'Snapshot refresh (seconds)', ph: '5' },
+    ],
+    help: 'A grid of camera feeds pointed at your streaming bridge (e.g. go2rtc). Use "live" for wired cameras (embeds the stream page) and "snapshot" for battery cameras (auto-refreshing still image — far kinder to the battery). Click any tile to open it fullscreen. Point the URLs directly at the camera host — do not proxy camera streams through LabDash.',
+    client: true,
+  },
 };
 
 let widgetData = {}; // id -> {ok, type, data|error}
@@ -502,6 +513,7 @@ function renderWidgets() {
     card.appendChild(head);
 
     if (w.type === 'iframe' && (w.options || {}).mode === 'inline') card.classList.add('wide');
+    if (w.type === 'cameras') card.classList.add('wide');
 
     const body = document.createElement('div');
     body.className = 'wbody';
@@ -676,7 +688,84 @@ function fillClientWidget(body, w) {
         openEmbed(w);
       });
     }
+  } else if (w.type === 'cameras') {
+    const cams = parseCameras(o.list);
+    if (!cams.length) {
+      const p = document.createElement('div');
+      p.className = 'sub';
+      p.textContent = 'No cameras yet — click ✎ to add some.';
+      body.appendChild(p);
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'cam-grid';
+    grid.style.setProperty('--cam-cols', String(Math.min(4, Math.max(1, parseInt(o.columns, 10) || 2))));
+    const every = Math.max(2, parseInt(o.refresh, 10) || 5) * 1000;
+    cams.forEach((cam) => {
+      const tile = document.createElement('div');
+      tile.className = 'cam-tile';
+      tile.title = cam.name + ' — click to open fullscreen';
+      let media;
+      if (cam.mode === 'snapshot') {
+        media = document.createElement('img');
+        media.className = 'cam-media snap';
+        media.alt = cam.name;
+        media.loading = 'lazy';
+        media.dataset.src = cam.url;
+        media.dataset.every = String(every);
+        media.src = bustUrl(cam.url);
+        media.dataset.next = String(Date.now() + every);
+        ensureCamTicker();
+      } else {
+        media = document.createElement('iframe');
+        media.className = 'cam-media';
+        media.src = cam.url;
+        media.loading = 'lazy';
+        media.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+      }
+      tile.appendChild(media);
+      const label = document.createElement('div');
+      label.className = 'cam-label';
+      label.textContent = cam.name;
+      tile.appendChild(label);
+      tile.addEventListener('click', () => {
+        if (editing) return;
+        openEmbed({ id: w.id + ':' + cam.name, title: cam.name, options: { url: cam.url } });
+      });
+      grid.appendChild(tile);
+    });
+    body.appendChild(grid);
   }
+}
+
+/* Parse the cameras textarea: one camera per line, "Name | URL | mode". */
+function parseCameras(text) {
+  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
+    const p = line.split('|').map((s) => s.trim());
+    const name = p[0] || 'Camera';
+    const url = p[1] || '';
+    const mode = (p[2] || 'live').toLowerCase() === 'snapshot' ? 'snapshot' : 'live';
+    return { name, url, mode };
+  }).filter((c) => c.url);
+}
+
+function bustUrl(u) { return u + (u.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now(); }
+
+/* One shared ticker reloads every on-screen snapshot when it's due — no
+   per-tile timers to leak when the widget row re-renders. */
+let __camTicker = null;
+function ensureCamTicker() {
+  if (__camTicker) return;
+  __camTicker = setInterval(() => {
+    const now = Date.now();
+    $$('img.cam-media.snap').forEach((im) => {
+      const every = parseInt(im.dataset.every, 10) || 5000;
+      if (now >= (parseInt(im.dataset.next, 10) || 0)) {
+        im.src = bustUrl(im.dataset.src || '');
+        im.dataset.next = String(now + every);
+      }
+    });
+  }, 1000);
 }
 
 /* Notes are edited right on the card — click, type, click away (or Ctrl+Enter). */
