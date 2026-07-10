@@ -180,6 +180,27 @@ echo "  http://${HOST}:${PORT}/api/frame.jpeg?src=<name>"
 PCS
 )
 
+# "get-ring-token" helper — generates a Ring refresh token via ring-auth-cli.
+# Prompts for email/password/2FA locally; nothing is stored by the helper.
+GET_TOKEN_B64=$(base64 -w0 <<'GTK'
+#!/usr/bin/env bash
+# Generate a Ring refresh token for go2rtc.
+# Prompts for your Ring email, password, and 2FA code — nothing is saved here.
+# Copy the printed token into go2rtc's web UI (Add -> Ring, refresh-token field),
+# or into /opt/go2rtc/go2rtc.yaml as:  streams: { cam: "ring:?refresh_token=TOKEN" }
+set -euo pipefail
+if ! command -v npx >/dev/null 2>&1; then
+  echo "Installing Node.js (one-time, ~30s)…"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq nodejs npm >/dev/null
+fi
+echo "Starting Ring sign-in — have your 2FA method (SMS/email) ready."
+echo
+exec npx --yes -p ring-client-api ring-auth-cli
+GTK
+)
+
 msg "Installing go2rtc inside the container…"
 pct exec "$CTID" -- bash -euo pipefail -c "
   export DEBIAN_FRONTEND=noninteractive
@@ -237,6 +258,8 @@ UNIT
   # web UI, this prints ready-to-paste LabDash 'Cameras (grid)' lines.
   echo '$PRINT_CAMERAS_B64' | base64 -d > /opt/go2rtc/print-cameras.sh
   chmod +x /opt/go2rtc/print-cameras.sh
+  echo '$GET_TOKEN_B64' | base64 -d > /opt/go2rtc/get-ring-token.sh
+  chmod +x /opt/go2rtc/get-ring-token.sh
 
   systemctl daemon-reload
   systemctl enable -q --now go2rtc
@@ -271,8 +294,10 @@ echo
 ok  "All done!"
 echo
 echo -e "  ${GN}1.${CL} Open go2rtc:   ${GN}http://${IP}:${GO2RTC_PORT}${CL}"
-echo -e "  ${GN}2.${CL} Click  ${BL}Add → Ring${CL}, sign in with your Ring email + password + 2FA code."
-echo -e "       (go2rtc stores a token locally; you won't need your password again.)"
+echo -e "  ${GN}2.${CL} Get a Ring refresh token (the reliable way to log in):"
+echo -e "       ${BL}pct exec $CTID -- /opt/go2rtc/get-ring-token.sh${CL}"
+echo -e "       Enter your Ring email + password + 2FA code; copy the printed token,"
+echo -e "       then paste it into go2rtc's ${BL}Add → Ring${CL} refresh-token (second) field."
 echo -e "  ${GN}3.${CL} List your cameras as LabDash-ready lines:"
 echo -e "       ${BL}pct exec $CTID -- /opt/go2rtc/print-cameras.sh ${ADDR}${CL}"
 echo -e "  ${GN}4.${CL} In LabDash: Edit → + Add widget → ${BL}Cameras (grid)${CL}, paste those lines."
