@@ -489,8 +489,9 @@ const WTYPES = {
       { k: 'list', label: 'Machines — one per line:  Name | HTML5 gateway session URL', textarea: true,
         ph: 'Server-01 | https://guac.example.com/#/client/c2VydmVyMDE\nMain PC | https://guac.example.com/#/client/bWFpbnBj' },
       { k: 'columns', label: 'Columns', select: [['3', '3'], ['2', '2'], ['4', '4'], ['1', '1']] },
+      { k: 'proxy', label: 'Proxy through the LabDash server (load a gateway that only exists on your LAN)', checkbox: true },
     ],
-    help: 'Tiles that open a full remote-desktop session in the popup viewer. Point each at a connection on your HTML5 RDP gateway (Apache Guacamole). The gateway brokers the RDP on the LAN side, so this works even when you reach LabDash over your domain. Sessions open only when you click a tile — a wall of tiles is safe.',
+    help: 'Tiles that open a full remote-desktop session in the popup viewer. Point each at a connection on your HTML5 RDP gateway (Apache Guacamole). If the gateway is reachable directly (e.g. over Tailscale, or LabDash itself is LAN-only) leave "Proxy" off — that gives the smoothest session. Tick "Proxy" only if the gateway is internal-only and LabDash is reached from outside the LAN (e.g. over a domain): LabDash fetches it server-side instead, same as the Embed widget\'s proxy. Guacamole falls back to HTTP long-polling when proxied (no raw WebSocket through the proxy), so it still works but can feel a step slower — prefer Tailscale/VPN to the gateway directly when you can. Sessions open only when you click a tile — a wall of tiles is safe.',
     client: true,
   },
 };
@@ -776,7 +777,7 @@ function fillClientWidget(body, w) {
       tile.appendChild(hint);
       tile.addEventListener('click', () => {
         if (editing) return;
-        openEmbed({ id: w.id + ':' + m.name, title: m.name, options: { url: m.url, size: 'full' } });
+        openEmbed({ id: w.id + ':' + m.name, title: m.name, options: { url: m.url, size: 'full', proxy: !!o.proxy } });
       });
       grid.appendChild(tile);
     });

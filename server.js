@@ -290,6 +290,15 @@ function rewriteProxyUrl(val, origin, prefix) {
   return val; // relative or other-origin absolute — leave alone
 }
 
+// Mirrors public/app.js's parseCameras() just enough to resolve a name -> url
+// for rdp/cameras widget "Name | URL | ..." lines, server-side (for proxying).
+function parseNameUrlLines(text) {
+  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
+    const p = line.split('|').map((s) => s.trim());
+    return { name: p[0] || '', url: p[1] || '' };
+  }).filter((x) => x.name && x.url);
+}
+
 const CSS_URL_RE = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
 
 function rewriteProxyCss(css, origin, prefix) {
@@ -525,13 +534,27 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname.startsWith('/api/proxy/')) {
       const cfg = readConfig();
       const segs = u.pathname.split('/').filter(Boolean); // ['api','proxy','<id>', ...]
-      const widgetId = segs[2];
-      // Resolve the proxy target: an iframe widget with proxy on, or a
-      // service tile set to open as a popup with proxy on.
+      const widgetId = segs[2]; // raw (percent-encoded) — used as-is for the prefix below
+      let decodedId = widgetId;
+      try { decodedId = decodeURIComponent(widgetId || ''); } catch { /* leave as-is */ }
+      // Resolve the proxy target: an iframe widget with proxy on, a
+      // service tile set to open as a popup with proxy on, or one machine
+      // tile of an rdp widget with proxy on (id is "<widgetId>:<machine name>",
+      // since each tile points at a different URL within the same widget —
+      // the machine name is decoded here since it can contain spaces/etc).
       let targetUrl = null;
       const w = (cfg.widgets || []).find((x) => x.id === widgetId);
       if (w && w.type === 'iframe' && w.options && w.options.proxy) {
         targetUrl = w.options.url;
+      } else if (decodedId && decodedId.includes(':')) {
+        const sep = decodedId.indexOf(':');
+        const rdpId = decodedId.slice(0, sep);
+        const machineName = decodedId.slice(sep + 1);
+        const rw = (cfg.widgets || []).find((x) => x.id === rdpId && x.type === 'rdp');
+        if (rw && rw.options && rw.options.proxy) {
+          const m = parseNameUrlLines(rw.options.list).find((x) => x.name === machineName);
+          if (m) targetUrl = m.url;
+        }
       } else {
         for (const g of (cfg.groups || [])) {
           const s = (g.services || []).find((x) => (x.id || x.name) === widgetId);
