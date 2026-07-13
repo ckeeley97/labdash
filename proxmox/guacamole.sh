@@ -8,8 +8,9 @@
 #  Debian doesn't ship a guacd package, so this builds guacamole-server
 #  from source (first run takes a few minutes) and deploys the official
 #  guacamole-client .war under Tomcat 9 — Guacamole doesn't yet support
-#  the Tomcat 10 that ships by default on Debian 12, so this pulls tomcat9
-#  from Debian's own repo (still present in bookworm).
+#  the Tomcat 10 that ships by default on Debian 12, and Debian dropped
+#  its own tomcat9 package from bookworm back in Dec 2023, so this fetches
+#  the official Tomcat 9 binary straight from apache.org instead of apt.
 #
 #  Auth is Guacamole's built-in user-mapping.xml (no MySQL/Postgres needed)
 #  — one admin user, connections added with the bundled add-machine.sh.
@@ -34,6 +35,7 @@ TOMCAT_PORT="${TOMCAT_PORT:-8080}"
 GUACD_PORT="${GUACD_PORT:-4822}"
 DEBIAN_VERSION="${DEBIAN_VERSION:-12}"
 GUAC_VERSION="${GUAC_VERSION:-}"                 # blank = auto-detect latest
+TOMCAT_VERSION="${TOMCAT_VERSION:-}"             # blank = auto-detect latest 9.0.x
 GUAC_ADMIN_USER="${GUAC_ADMIN_USER:-admin}"
 GUAC_ADMIN_PASS="${GUAC_ADMIN_PASS:-}"           # blank = generate one
 INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-ask}"    # yes | no | ask
@@ -68,6 +70,17 @@ if [[ -z "$GUAC_VERSION" ]]; then
   GUAC_VERSION=$(curl -fsSL https://api.github.com/repos/apache/guacamole-server/tags 2>/dev/null \
     | grep -m1 '"name"' | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/') || true
   GUAC_VERSION="${GUAC_VERSION:-1.6.0}"
+fi
+
+# ------------------------- pick a Tomcat 9 version --------------------------
+# Debian removed the tomcat9 apt package from bookworm in Dec 2023 and
+# Guacamole's client still doesn't support Tomcat 10's Jakarta namespace,
+# so we fetch the official upstream binary instead of relying on apt.
+if [[ -z "$TOMCAT_VERSION" ]]; then
+  msg "Looking up the latest Tomcat 9 release…"
+  TOMCAT_VERSION=$(curl -fsSL https://downloads.apache.org/tomcat/tomcat-9/ 2>/dev/null \
+    | grep -oE 'v9\.0\.[0-9]+' | sed 's/^v//' | sort -t. -k3 -n | tail -1) || true
+  TOMCAT_VERSION="${TOMCAT_VERSION:-9.0.117}"
 fi
 
 # ------------------------- generate admin password ---------------------------
@@ -107,6 +120,7 @@ echo "      RAM/Swap:    ${RAM}MB / ${SWAP}MB"
 echo "      Cores:       $CORES"
 echo "      Network:     $BRIDGE ($NET)"
 echo "      Guacamole:   v${GUAC_VERSION} (built from source)"
+echo "      Tomcat:      v${TOMCAT_VERSION} (upstream binary — apt's tomcat9 is gone from bookworm)"
 echo "      Web port:    $TOMCAT_PORT  (path: /guacamole)"
 echo "      Admin user:  $GUAC_ADMIN_USER"
 echo "      Tailscale:   $INSTALL_TAILSCALE"
@@ -251,7 +265,7 @@ ADM
 )
 
 # --------------------------- install inside the CT --------------------------
-msg "Installing build tools + Tomcat 9 (this takes a minute)…"
+msg "Installing build tools + a JRE (this takes a minute)…"
 pct exec "$CTID" -- bash -euo pipefail -c "
   export DEBIAN_FRONTEND=noninteractive
   apt-get -qq update
@@ -261,7 +275,7 @@ pct exec "$CTID" -- bash -euo pipefail -c "
     libvncserver-dev libssh2-1-dev libssl-dev libtelnet-dev libpango1.0-dev \
     libwebsockets-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
     libvorbis-dev libwebp-dev libpulse-dev freerdp2-dev \
-    tomcat9 default-jre-headless >/dev/null
+    default-jre-headless >/dev/null
 "
 ok "Dependencies installed."
 
@@ -281,13 +295,63 @@ pct exec "$CTID" -- bash -euo pipefail -c "
 "
 ok "guacd built and installed."
 
-msg "Deploying the Guacamole web client (Tomcat) on port ${TOMCAT_PORT}…"
-pct exec "$CTID" -- bash -euo pipefail -c "
+# Debian's tomcat9 apt package is gone from bookworm (removed Dec 2023), and
+# Guacamole's client doesn't run on the Tomcat 10 Debian ships instead — so
+# this fetches upstream's own Tomcat 9 binary tarball and runs it standalone
+# under /opt/tomcat9 with its own systemd unit, same as guacd above.
+msg "Installing Tomcat ${TOMCAT_VERSION} (upstream binary, since apt's tomcat9 no longer exists)…"
+pct exec "$CTID" -- env TOMCAT_VERSION="$TOMCAT_VERSION" bash -c '
+  set -euo pipefail
+  cd /usr/src
+  curl -fsSL -o apache-tomcat.tar.gz \
+    "https://dlcdn.apache.org/tomcat/tomcat-9/v${TOMCAT_VERSION}/bin/apache-tomcat-${TOMCAT_VERSION}.tar.gz" \
+    || curl -fsSL -o apache-tomcat.tar.gz \
+    "https://archive.apache.org/dist/tomcat/tomcat-9/v${TOMCAT_VERSION}/bin/apache-tomcat-${TOMCAT_VERSION}.tar.gz"
+  mkdir -p /opt/tomcat9
+  tar xzf apache-tomcat.tar.gz -C /opt/tomcat9 --strip-components=1
+  rm -rf /opt/tomcat9/webapps/ROOT /opt/tomcat9/webapps/docs /opt/tomcat9/webapps/examples \
+         /opt/tomcat9/webapps/manager /opt/tomcat9/webapps/host-manager
+  id -u tomcat >/dev/null 2>&1 || useradd -r -M -d /opt/tomcat9 -s /usr/sbin/nologin tomcat
+  chmod +x /opt/tomcat9/bin/*.sh
+  chown -R tomcat:tomcat /opt/tomcat9
+
+  JAVA_BIN=$(command -v java)
+  JAVA_HOME_DETECTED=$(readlink -f "$JAVA_BIN" | sed "s:/bin/java$::")
+  cat > /etc/systemd/system/tomcat9.service <<UNIT
+[Unit]
+Description=Tomcat 9 (Guacamole web client)
+After=network.target
+
+[Service]
+Type=forking
+User=tomcat
+Group=tomcat
+Environment=JAVA_HOME=${JAVA_HOME_DETECTED}
+Environment=CATALINA_PID=/opt/tomcat9/temp/tomcat.pid
+Environment=CATALINA_HOME=/opt/tomcat9
+Environment=CATALINA_BASE=/opt/tomcat9
+ExecStart=/opt/tomcat9/bin/startup.sh
+ExecStop=/opt/tomcat9/bin/shutdown.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+'
+ok "Tomcat installed."
+
+msg "Deploying the Guacamole web client on port ${TOMCAT_PORT}…"
+pct exec "$CTID" -- env GUAC_VERSION="$GUAC_VERSION" GUACD_PORT="$GUACD_PORT" \
+  GUAC_ADMIN_USER="$GUAC_ADMIN_USER" GUAC_ADMIN_PASS="$GUAC_ADMIN_PASS" \
+  TOMCAT_PORT="$TOMCAT_PORT" ADD_MACHINE_B64="$ADD_MACHINE_B64" bash -c '
+  set -euo pipefail
   mkdir -p /etc/guacamole/extensions /etc/guacamole/lib
-  curl -fsSL -o /var/lib/tomcat9/webapps/guacamole.war \
-    \"https://downloads.apache.org/guacamole/${GUAC_VERSION}/binary/guacamole-${GUAC_VERSION}.war\" \
-    || curl -fsSL -o /var/lib/tomcat9/webapps/guacamole.war \
-    \"https://archive.apache.org/dist/guacamole/${GUAC_VERSION}/binary/guacamole-${GUAC_VERSION}.war\"
+  curl -fsSL -o /opt/tomcat9/webapps/guacamole.war \
+    "https://downloads.apache.org/guacamole/${GUAC_VERSION}/binary/guacamole-${GUAC_VERSION}.war" \
+    || curl -fsSL -o /opt/tomcat9/webapps/guacamole.war \
+    "https://archive.apache.org/dist/guacamole/${GUAC_VERSION}/binary/guacamole-${GUAC_VERSION}.war"
 
   cat > /etc/guacamole/guacamole.properties <<PROPS
 guacd-hostname: localhost
@@ -297,7 +361,7 @@ PROPS
   if [ ! -f /etc/guacamole/user-mapping.xml ]; then
     cat > /etc/guacamole/user-mapping.xml <<MAP
 <user-mapping>
-  <authorize username=\"${GUAC_ADMIN_USER}\" password=\"${GUAC_ADMIN_PASS}\">
+  <authorize username="${GUAC_ADMIN_USER}" password="${GUAC_ADMIN_PASS}">
     <!-- add machines with: /opt/guacamole/add-machine.sh -->
   </authorize>
 </user-mapping>
@@ -305,21 +369,22 @@ MAP
   fi
   chown -R tomcat:tomcat /etc/guacamole
   chmod 640 /etc/guacamole/user-mapping.xml
-  ln -sf /etc/guacamole /var/lib/tomcat9/.guacamole
+  ln -sf /etc/guacamole /opt/tomcat9/.guacamole
 
-  if [ \"${TOMCAT_PORT}\" != \"8080\" ]; then
-    sed -i 's/port=\"8080\"/port=\"${TOMCAT_PORT}\"/' /etc/tomcat9/server.xml
+  if [ "${TOMCAT_PORT}" != "8080" ]; then
+    sed -i "s/port=\"8080\"/port=\"${TOMCAT_PORT}\"/" /opt/tomcat9/conf/server.xml
   fi
 
   mkdir -p /opt/guacamole
-  echo '$ADD_MACHINE_B64' | base64 -d > /opt/guacamole/add-machine.sh
+  echo "$ADD_MACHINE_B64" | base64 -d > /opt/guacamole/add-machine.sh
   chmod +x /opt/guacamole/add-machine.sh
 
-  systemctl daemon-reload
+  chown -R tomcat:tomcat /opt/tomcat9
+
   systemctl enable -q --now guacd
   systemctl enable -q tomcat9
   systemctl restart tomcat9
-"
+'
 ok "Guacamole web client deployed."
 
 # ----------------------------- Tailscale (opt) -----------------------------
