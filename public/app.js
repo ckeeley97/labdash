@@ -483,6 +483,16 @@ const WTYPES = {
     help: 'A grid of camera feeds pointed at your streaming bridge (e.g. go2rtc). Use "live" for wired cameras (embeds the stream page) and "snapshot" for battery cameras (auto-refreshing still image — far kinder to the battery). Click any tile to open it fullscreen. Point the URLs directly at the camera host — do not proxy camera streams through LabDash.',
     client: true,
   },
+  rdp: {
+    label: 'Remote desktops',
+    fields: [
+      { k: 'list', label: 'Machines — one per line:  Name | HTML5 gateway session URL', textarea: true,
+        ph: 'Server-01 | https://guac.example.com/#/client/c2VydmVyMDE\nMain PC | https://guac.example.com/#/client/bWFpbnBj' },
+      { k: 'columns', label: 'Columns', select: [['3', '3'], ['2', '2'], ['4', '4'], ['1', '1']] },
+    ],
+    help: 'Tiles that open a full remote-desktop session in the popup viewer. Point each at a connection on your HTML5 RDP gateway (Apache Guacamole). The gateway brokers the RDP on the LAN side, so this works even when you reach LabDash over your domain. Sessions open only when you click a tile — a wall of tiles is safe.',
+    client: true,
+  },
 };
 
 let widgetData = {}; // id -> {ok, type, data|error}
@@ -514,6 +524,7 @@ function renderWidgets() {
 
     if (w.type === 'iframe' && (w.options || {}).mode === 'inline') card.classList.add('wide');
     if (w.type === 'cameras') card.classList.add('wide');
+    if (w.type === 'rdp') card.classList.add('wide');
 
     const body = document.createElement('div');
     body.className = 'wbody';
@@ -731,6 +742,41 @@ function fillClientWidget(body, w) {
       tile.addEventListener('click', () => {
         if (editing) return;
         openEmbed({ id: w.id + ':' + cam.name, title: cam.name, options: { url: cam.url } });
+      });
+      grid.appendChild(tile);
+    });
+    body.appendChild(grid);
+  } else if (w.type === 'rdp') {
+    const machines = parseCameras(o.list); // same "Name | URL" parser
+    if (!machines.length) {
+      const p = document.createElement('div');
+      p.className = 'sub';
+      p.textContent = 'No machines yet — click ✎ to add some.';
+      body.appendChild(p);
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'rdp-grid';
+    grid.style.setProperty('--rdp-cols', String(Math.min(4, Math.max(1, parseInt(o.columns, 10) || 3))));
+    machines.forEach((m) => {
+      const tile = document.createElement('div');
+      tile.className = 'rdp-tile';
+      tile.title = 'Open ' + m.name;
+      const ic = document.createElement('div');
+      ic.className = 'rdp-ic';
+      ic.textContent = '🖥';
+      tile.appendChild(ic);
+      const nm = document.createElement('div');
+      nm.className = 'rdp-name';
+      nm.textContent = m.name;
+      tile.appendChild(nm);
+      const hint = document.createElement('div');
+      hint.className = 'rdp-hint';
+      hint.textContent = 'open desktop ⤢';
+      tile.appendChild(hint);
+      tile.addEventListener('click', () => {
+        if (editing) return;
+        openEmbed({ id: w.id + ':' + m.name, title: m.name, options: { url: m.url, size: 'full' } });
       });
       grid.appendChild(tile);
     });

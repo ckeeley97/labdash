@@ -438,6 +438,19 @@ body.editing .widget-tools { display: flex; }
   background: linear-gradient(transparent, rgba(0,0,0,.65)); pointer-events: none;
 }
 
+/* RDP / remote-desktop widget */
+.rdp-grid { display: grid; grid-template-columns: repeat(var(--rdp-cols, 3), 1fr); gap: 10px; }
+.rdp-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  padding: 18px 12px; border-radius: 12px; text-align: center;
+  background: var(--surface); border: 1px solid var(--border); cursor: pointer;
+  transition: transform .12s ease, border-color .15s;
+}
+.rdp-tile:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.rdp-ic { font-size: 1.8rem; line-height: 1; }
+.rdp-name { font-weight: 600; font-size: .9rem; }
+.rdp-hint { font-size: .72rem; color: var(--text-3); }
+
 dialog form textarea {
   display: block; width: 100%; margin-top: 5px; padding: 9px 12px;
   background: var(--surface-2); color: var(--text);
