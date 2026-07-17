@@ -777,7 +777,11 @@ function fillClientWidget(body, w) {
       tile.appendChild(hint);
       tile.addEventListener('click', () => {
         if (editing) return;
-        openEmbed({ id: w.id + ':' + m.name, title: m.name, options: { url: m.url, size: 'full', proxy: !!o.proxy } });
+        openEmbed({
+          id: w.id + ':' + m.name,
+          title: m.name,
+          options: { url: m.url, size: 'full', proxy: !!o.proxy, sandbox: 'allow-scripts allow-same-origin allow-forms' },
+        });
       });
       grid.appendChild(tile);
     });
@@ -864,7 +868,10 @@ function openEmbed(w) {
 
     const frame = document.createElement('iframe');
     frame.className = 'embed-frame';
-    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+    // Popups are allowed by default (some embeds rely on them), but rdp
+    // tiles opt out: Guacamole's own client will pop itself into a new
+    // browser tab/window given the chance instead of staying in the popup.
+    frame.setAttribute('sandbox', o.sandbox || 'allow-scripts allow-same-origin allow-forms allow-popups');
     frame.src = embedSrc(w);
     $('#embed-frames').appendChild(frame);
 
