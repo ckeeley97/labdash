@@ -353,8 +353,19 @@ pct exec "$CTID" -- env GUAC_VERSION="$GUAC_VERSION" GUACD_PORT="$GUACD_PORT" \
     || curl -fsSL -o /opt/tomcat9/webapps/guacamole.war \
     "https://archive.apache.org/dist/guacamole/${GUAC_VERSION}/binary/guacamole-${GUAC_VERSION}.war"
 
+  # Without this, guacd resolves "localhost" via getaddrinfo() and on many
+  # Debian LXCs that comes back IPv6-first, so guacd binds only to ::1 while
+  # Tomcat connects over IPv4 — every session then dies immediately with a
+  # generic "An internal error has occurred within the Guacamole server".
+  # Pinning both sides to the literal IPv4 loopback avoids the ambiguity.
+  cat > /etc/guacamole/guacd.conf <<CONF
+[server]
+bind_host = 127.0.0.1
+bind_port = ${GUACD_PORT}
+CONF
+
   cat > /etc/guacamole/guacamole.properties <<PROPS
-guacd-hostname: localhost
+guacd-hostname: 127.0.0.1
 guacd-port: ${GUACD_PORT}
 PROPS
 
