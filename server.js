@@ -674,20 +674,21 @@ const server = http.createServer(async (req, res) => {
    ways once it responds. Requires the same session cookie as everything
    else under /api/. */
 server.on('upgrade', (req, socket, head) => {
-  socket.on('error', () => socket.destroy());
+  const deny = (reason) => { console.error('[labdash] ws proxy denied:', reason, req.url); try { socket.destroy(); } catch { /* already gone */ } };
+  socket.on('error', (e) => console.error('[labdash] ws client socket error:', e.code || e.message));
   try {
     const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    if (!u.pathname.startsWith('/api/proxy/')) { socket.destroy(); return; }
-    if (!auth || !auth.check(req)) { socket.destroy(); return; }
+    if (!u.pathname.startsWith('/api/proxy/')) return deny('not a proxy path');
+    if (!auth || !auth.check(req)) return deny('no valid session cookie');
 
     const cfg = readConfig();
     const segs = u.pathname.split('/').filter(Boolean);
     const widgetId = segs[2];
     const targetUrl = resolveProxyTarget(cfg, widgetId);
-    if (!targetUrl) { socket.destroy(); return; }
+    if (!targetUrl) return deny('no proxy target for id ' + widgetId);
 
     let base;
-    try { base = new URL(targetUrl.trim()); } catch { socket.destroy(); return; }
+    try { base = new URL(targetUrl.trim()); } catch { return deny('target has no valid url: ' + targetUrl); }
     const prefix = '/api/proxy/' + widgetId;
     let restPath = u.pathname.slice(prefix.length) || '/';
     if (!restPath.startsWith('/')) restPath = '/' + restPath;
@@ -699,10 +700,12 @@ server.on('upgrade', (req, socket, head) => {
       rejectUnauthorized: false,
     };
     const isTls = base.protocol === 'https:';
+    console.log('[labdash] ws proxy: connecting to', `${connectOpts.host}:${connectOpts.port}${targetPath}`, '(tls:', isTls, ')');
     const upstream = isTls ? tls.connect(connectOpts) : net.connect(connectOpts);
 
-    upstream.on('error', () => socket.destroy());
+    upstream.on('error', (e) => { console.error('[labdash] ws proxy upstream error:', e.code || e.message); socket.destroy(); });
     upstream.on(isTls ? 'secureConnect' : 'connect', () => {
+      console.log('[labdash] ws proxy: upstream connected, relaying handshake for', targetPath);
       const headerLines = ['Host: ' + base.host];
       for (const [k, v] of Object.entries(req.headers)) {
         if (k.toLowerCase() === 'host') continue;
@@ -714,7 +717,8 @@ server.on('upgrade', (req, socket, head) => {
       upstream.pipe(socket);
       socket.pipe(upstream);
     });
-  } catch {
+  } catch (e) {
+    console.error('[labdash] ws proxy exception:', e && e.message);
     try { socket.destroy(); } catch { /* already gone */ }
   }
 });
