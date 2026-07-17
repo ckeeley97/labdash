@@ -295,6 +295,24 @@ pct exec "$CTID" -- bash -euo pipefail -c "
 "
 ok "guacd built and installed."
 
+# Upstream's generated unit runs guacd as an unprivileged system user (e.g.
+# "daemon") for security, but that user's home directory (/usr/sbin) isn't
+# writable — and FreeRDP needs to write certs/config there during the RDP
+# security handshake. Without a writable HOME, RDP connections fail with a
+# confusing "Security negotiation failed" error that looks like bad
+# credentials but isn't. Give that user a real, writable home instead.
+pct exec "$CTID" -- bash -c '
+  set -euo pipefail
+  GUACD_USER=$(grep -oP "^User=\K.+" /etc/systemd/system/guacd.service 2>/dev/null || true)
+  if [ -n "$GUACD_USER" ] && [ "$GUACD_USER" != "root" ]; then
+    mkdir -p /var/lib/guacd
+    chown "$GUACD_USER":"$GUACD_USER" /var/lib/guacd 2>/dev/null || chown "$GUACD_USER" /var/lib/guacd
+    mkdir -p /etc/systemd/system/guacd.service.d
+    printf "[Service]\nEnvironment=HOME=/var/lib/guacd\n" > /etc/systemd/system/guacd.service.d/home.conf
+    systemctl daemon-reload
+  fi
+'
+
 # Debian's tomcat9 apt package is gone from bookworm (removed Dec 2023), and
 # Guacamole's client doesn't run on the Tomcat 10 Debian ships instead — so
 # this fetches upstream's own Tomcat 9 binary tarball and runs it standalone
