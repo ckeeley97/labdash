@@ -11,6 +11,8 @@
 
 const http = require('http');
 const https = require('https');
+const net = require('net');
+const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -299,6 +301,34 @@ function parseNameUrlLines(text) {
   }).filter((x) => x.name && x.url);
 }
 
+// Resolve a /api/proxy/<widgetId>/... path to its configured target URL —
+// shared by the plain HTTP proxy route and the WebSocket relay below, since
+// both need the exact same "which widget/machine does this id mean" logic.
+function resolveProxyTarget(cfg, widgetId) {
+  let decodedId = widgetId;
+  try { decodedId = decodeURIComponent(widgetId || ''); } catch { /* leave as-is */ }
+  const w = (cfg.widgets || []).find((x) => x.id === widgetId);
+  if (w && w.type === 'iframe' && w.options && w.options.proxy) {
+    return w.options.url;
+  }
+  if (decodedId && decodedId.includes(':')) {
+    const sep = decodedId.indexOf(':');
+    const rdpId = decodedId.slice(0, sep);
+    const machineName = decodedId.slice(sep + 1);
+    const rw = (cfg.widgets || []).find((x) => x.id === rdpId && x.type === 'rdp');
+    if (rw && rw.options && rw.options.proxy) {
+      const m = parseNameUrlLines(rw.options.list).find((x) => x.name === machineName);
+      if (m) return m.url;
+    }
+    return null;
+  }
+  for (const g of (cfg.groups || [])) {
+    const s = (g.services || []).find((x) => (x.id || x.name) === widgetId);
+    if (s && s.embed && s.proxy) return s.url;
+  }
+  return null;
+}
+
 const CSS_URL_RE = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
 
 function rewriteProxyCss(css, origin, prefix) {
@@ -535,32 +565,7 @@ const server = http.createServer(async (req, res) => {
       const cfg = readConfig();
       const segs = u.pathname.split('/').filter(Boolean); // ['api','proxy','<id>', ...]
       const widgetId = segs[2]; // raw (percent-encoded) — used as-is for the prefix below
-      let decodedId = widgetId;
-      try { decodedId = decodeURIComponent(widgetId || ''); } catch { /* leave as-is */ }
-      // Resolve the proxy target: an iframe widget with proxy on, a
-      // service tile set to open as a popup with proxy on, or one machine
-      // tile of an rdp widget with proxy on (id is "<widgetId>:<machine name>",
-      // since each tile points at a different URL within the same widget —
-      // the machine name is decoded here since it can contain spaces/etc).
-      let targetUrl = null;
-      const w = (cfg.widgets || []).find((x) => x.id === widgetId);
-      if (w && w.type === 'iframe' && w.options && w.options.proxy) {
-        targetUrl = w.options.url;
-      } else if (decodedId && decodedId.includes(':')) {
-        const sep = decodedId.indexOf(':');
-        const rdpId = decodedId.slice(0, sep);
-        const machineName = decodedId.slice(sep + 1);
-        const rw = (cfg.widgets || []).find((x) => x.id === rdpId && x.type === 'rdp');
-        if (rw && rw.options && rw.options.proxy) {
-          const m = parseNameUrlLines(rw.options.list).find((x) => x.name === machineName);
-          if (m) targetUrl = m.url;
-        }
-      } else {
-        for (const g of (cfg.groups || [])) {
-          const s = (g.services || []).find((x) => (x.id || x.name) === widgetId);
-          if (s && s.embed && s.proxy) { targetUrl = s.url; break; }
-        }
-      }
+      const targetUrl = resolveProxyTarget(cfg, widgetId);
       if (!targetUrl) {
         res.writeHead(404); return res.end('proxy target not found');
       }
@@ -658,6 +663,59 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     console.error('[labdash] request error:', err);
     sendJson(res, 500, { error: 'internal error' });
+  }
+});
+
+/* Blind WebSocket relay for /api/proxy/<id>/... — needed because Guacamole's
+   client (and anything else that streams live data) opens a WebSocket for
+   its tunnel, and the plain request/response proxy above can't carry that.
+   We don't need to understand the WebSocket protocol at all: replay the
+   client's own handshake to the upstream target, then pipe raw bytes both
+   ways once it responds. Requires the same session cookie as everything
+   else under /api/. */
+server.on('upgrade', (req, socket, head) => {
+  socket.on('error', () => socket.destroy());
+  try {
+    const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (!u.pathname.startsWith('/api/proxy/')) { socket.destroy(); return; }
+    if (!auth || !auth.check(req)) { socket.destroy(); return; }
+
+    const cfg = readConfig();
+    const segs = u.pathname.split('/').filter(Boolean);
+    const widgetId = segs[2];
+    const targetUrl = resolveProxyTarget(cfg, widgetId);
+    if (!targetUrl) { socket.destroy(); return; }
+
+    let base;
+    try { base = new URL(targetUrl.trim()); } catch { socket.destroy(); return; }
+    const prefix = '/api/proxy/' + widgetId;
+    let restPath = u.pathname.slice(prefix.length) || '/';
+    if (!restPath.startsWith('/')) restPath = '/' + restPath;
+    const targetPath = restPath + (u.search || '');
+
+    const connectOpts = {
+      host: base.hostname,
+      port: base.port || (base.protocol === 'https:' ? 443 : 80),
+      rejectUnauthorized: false,
+    };
+    const isTls = base.protocol === 'https:';
+    const upstream = isTls ? tls.connect(connectOpts) : net.connect(connectOpts);
+
+    upstream.on('error', () => socket.destroy());
+    upstream.on(isTls ? 'secureConnect' : 'connect', () => {
+      const headerLines = ['Host: ' + base.host];
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (k.toLowerCase() === 'host') continue;
+        const vals = Array.isArray(v) ? v : [v];
+        for (const vv of vals) headerLines.push(`${k}: ${vv}`);
+      }
+      upstream.write(`${req.method} ${targetPath} HTTP/1.1\r\n${headerLines.join('\r\n')}\r\n\r\n`);
+      if (head && head.length) upstream.write(head);
+      upstream.pipe(socket);
+      socket.pipe(upstream);
+    });
+  } catch {
+    try { socket.destroy(); } catch { /* already gone */ }
   }
 });
 
