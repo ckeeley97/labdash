@@ -873,6 +873,10 @@ function openEmbed(w) {
     const frame = document.createElement('iframe');
     frame.className = 'embed-frame';
     frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+    // Lets embedded apps (Guacamole's RDP clipboard sync, in particular)
+    // actually use the Clipboard API instead of silently failing — harmless
+    // for embeds that don't touch it.
+    frame.setAttribute('allow', 'clipboard-read; clipboard-write');
     frame.src = embedSrc(w);
     $('#embed-frames').appendChild(frame);
 
@@ -999,7 +1003,11 @@ function embedSrc(w) {
   if (!o.proxy) return o.url;
   try {
     const u = new URL(o.url);
-    return '/api/proxy/' + w.id + (u.pathname || '/') + (u.search || '');
+    // The hash never reaches the server (browsers strip it before the HTTP
+    // request), but it has to stay on the iframe's own URL — Guacamole's
+    // client routes entirely off '#/client/<id>', so dropping it here left
+    // proxied RDP tiles loading Guacamole's bare app shell with no session.
+    return '/api/proxy/' + w.id + (u.pathname || '/') + (u.search || '') + (u.hash || '');
   } catch {
     return '/api/proxy/' + w.id + '/';
   }
