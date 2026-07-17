@@ -364,14 +364,55 @@ function rewriteProxyHtml(html, origin, prefix) {
 
 const STRIP_HEADERS = new Set([
   'x-frame-options', 'content-security-policy', 'content-security-policy-report-only',
-  'content-length', 'transfer-encoding', 'strict-transport-security', 'set-cookie',
-  'content-encoding',
+  'strict-transport-security',
 ]);
+
+// Headers that describe THIS hop (client<->LabDash), not meaningful to forward
+// as-is to the upstream hop — Node sets its own Host/Connection, and we force
+// Accept-Encoding ourselves so upstream doesn't gzip text we need to rewrite.
+const REQUEST_HOP_HEADERS = new Set(['host', 'connection', 'accept-encoding']);
+
+// Rewrites one Set-Cookie value so it actually reaches us on later requests:
+// browsers reject a cookie outright if its Domain doesn't match the response's
+// real host (the upstream's internal hostname never will), and a Path scoped
+// to the upstream's own app root (e.g. "/guacamole") won't match our actual
+// request path ("/api/proxy/<id>/guacamole/..."), so the cookie would just
+// never get sent back. Drop Domain (let it default, host-only, to LabDash's
+// own origin) and rewrite Path to live under our proxy prefix.
+function rewriteSetCookie(raw, prefix) {
+  const parts = String(raw || '').split(';').map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return raw;
+  const nameValue = parts.shift();
+  const rest = [];
+  let sawPath = false;
+  for (const p of parts) {
+    const eq = p.indexOf('=');
+    const key = (eq === -1 ? p : p.slice(0, eq)).trim().toLowerCase();
+    if (key === 'domain') continue;
+    if (key === 'path') {
+      const origPath = eq === -1 ? '/' : p.slice(eq + 1).trim();
+      rest.push('Path=' + prefix + (origPath.startsWith('/') ? origPath : '/' + origPath));
+      sawPath = true;
+      continue;
+    }
+    rest.push(p);
+  }
+  if (!sawPath) rest.push('Path=' + prefix);
+  return [nameValue, ...rest].join('; ');
+}
 
 function doProxy(req, res, targetUrl, origin, prefix) {
   let tu;
   try { tu = new URL(targetUrl); } catch { res.writeHead(400); return res.end('bad target url'); }
   const mod = tu.protocol === 'https:' ? https : http;
+  const outHeaders = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (REQUEST_HOP_HEADERS.has(k.toLowerCase())) continue;
+    outHeaders[k] = v;
+  }
+  outHeaders['User-Agent'] = req.headers['user-agent'] || 'labdash-proxy';
+  // ask upstream not to gzip so we can rewrite text without inflating
+  outHeaders['Accept-Encoding'] = 'identity';
   const preq = mod.request(
     {
       method: req.method,
@@ -380,13 +421,7 @@ function doProxy(req, res, targetUrl, origin, prefix) {
       path: tu.pathname + tu.search,
       rejectUnauthorized: false,
       timeout: 15000,
-      headers: {
-        'User-Agent': req.headers['user-agent'] || 'labdash-proxy',
-        Accept: req.headers['accept'] || '*/*',
-        'Accept-Language': req.headers['accept-language'] || 'en',
-        // ask upstream not to gzip so we can rewrite text without inflating
-        'Accept-Encoding': 'identity',
-      },
+      headers: outHeaders,
     },
     (pres) => {
       const ct = (pres.headers['content-type'] || '').toLowerCase();
@@ -396,8 +431,14 @@ function doProxy(req, res, targetUrl, origin, prefix) {
       for (const [k, v] of Object.entries(pres.headers)) {
         if (!STRIP_HEADERS.has(k.toLowerCase())) out[k] = v;
       }
+      if (pres.headers['set-cookie']) {
+        out['set-cookie'] = pres.headers['set-cookie'].map((c) => rewriteSetCookie(c, prefix));
+      }
       if (pres.headers.location) out['location'] = rewriteProxyUrl(pres.headers.location, origin, prefix);
       if (!isHtml && !isCss) {
+        // Leave content-length/transfer-encoding exactly as upstream sent
+        // them (already copied verbatim above) — we're piping the body
+        // through untouched, so whichever framing upstream chose is valid.
         res.writeHead(pres.statusCode || 502, out);
         return pres.pipe(res);
       }
@@ -407,14 +448,23 @@ function doProxy(req, res, targetUrl, origin, prefix) {
       pres.on('end', () => {
         let body = Buffer.concat(chunks).toString('utf8');
         body = isHtml ? rewriteProxyHtml(body, origin, prefix) : rewriteProxyCss(body, origin, prefix);
+        // We buffered and rewrote the whole body ourselves, so whatever
+        // framing/encoding upstream used no longer applies — this body is
+        // always plain, uncompressed UTF-8 text.
+        delete out['transfer-encoding'];
+        delete out['content-encoding'];
         out['content-type'] = pres.headers['content-type'];
+        out['content-length'] = Buffer.byteLength(body);
         res.writeHead(pres.statusCode || 200, out);
         res.end(body);
       });
     }
   );
   preq.on('timeout', () => { preq.destroy(); if (!res.headersSent) { res.writeHead(504); res.end('proxy timeout'); } });
-  preq.on('error', (e) => { if (!res.headersSent) { res.writeHead(502); res.end('proxy error: ' + (e.code || e.message)); } });
+  preq.on('error', (e) => {
+    console.error('[labdash] http proxy error:', e.code || e.message, '->', targetUrl);
+    if (!res.headersSent) { res.writeHead(502); res.end('proxy error: ' + (e.code || e.message)); }
+  });
   req.pipe(preq);
 }
 
@@ -567,6 +617,7 @@ const server = http.createServer(async (req, res) => {
       const widgetId = segs[2]; // raw (percent-encoded) — used as-is for the prefix below
       const targetUrl = resolveProxyTarget(cfg, widgetId);
       if (!targetUrl) {
+        console.error('[labdash] http proxy: no target for id', widgetId, '(', u.pathname, ')');
         res.writeHead(404); return res.end('proxy target not found');
       }
       let base;
@@ -575,7 +626,9 @@ const server = http.createServer(async (req, res) => {
       const prefix = '/api/proxy/' + widgetId;
       let restPath = u.pathname.slice(prefix.length) || '/';
       if (!restPath.startsWith('/')) restPath = '/' + restPath;
-      return doProxy(req, res, origin + restPath + (u.search || ''), origin, prefix);
+      const fullTarget = origin + restPath + (u.search || '');
+      console.log('[labdash] http proxy:', req.method, u.pathname, '->', fullTarget);
+      return doProxy(req, res, fullTarget, origin, prefix);
     }
 
     if (route === 'GET /api/version') {
