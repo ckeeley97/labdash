@@ -780,7 +780,11 @@ function fillClientWidget(body, w) {
         openEmbed({
           id: w.id + ':' + m.name,
           title: m.name,
-          options: { url: m.url, size: 'full', proxy: !!o.proxy, sandbox: 'allow-scripts allow-same-origin allow-forms' },
+          // hideNewTab: a real RDP/VNC/SSH session shouldn't get popped out
+          // of LabDash into a bare tab with no auth — the "⧉" open-in-tab
+          // button is hidden for these, same as the tab-close X still lets
+          // you end the session, just not detach it.
+          options: { url: m.url, size: 'full', proxy: !!o.proxy, hideNewTab: true },
         });
       });
       grid.appendChild(tile);
@@ -868,10 +872,7 @@ function openEmbed(w) {
 
     const frame = document.createElement('iframe');
     frame.className = 'embed-frame';
-    // Popups are allowed by default (some embeds rely on them), but rdp
-    // tiles opt out: Guacamole's own client will pop itself into a new
-    // browser tab/window given the chance instead of staying in the popup.
-    frame.setAttribute('sandbox', o.sandbox || 'allow-scripts allow-same-origin allow-forms allow-popups');
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
     frame.src = embedSrc(w);
     $('#embed-frames').appendChild(frame);
 
@@ -898,7 +899,7 @@ function openEmbed(w) {
     tabEl.addEventListener('click', () => activateEmbed(id));
     $('#embed-tabs').appendChild(tabEl);
 
-    tab = { id, frame, tabEl, size: o.size || '' };
+    tab = { id, frame, tabEl, size: o.size || '', hideNewTab: !!o.hideNewTab };
     embedState.tabs.push(tab);
   }
   activateEmbed(id);
@@ -921,7 +922,9 @@ function activateEmbed(id) {
       if (t.size === 'compact') dlg.classList.add('embed-compact');
       if (t.size === 'full') dlg.classList.add('embed-full');
       const src = t.frame.getAttribute('src') || '';
-      $('#embed-newtab').href = (src && src !== 'about:blank') ? src : '#';
+      const newTabBtn = $('#embed-newtab');
+      newTabBtn.href = (src && src !== 'about:blank') ? src : '#';
+      newTabBtn.hidden = !!t.hideNewTab;
     }
   }
 }
