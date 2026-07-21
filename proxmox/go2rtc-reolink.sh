@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  LabDash — go2rtc + Ring camera bridge — Proxmox VE helper script
-#  Creates an unprivileged Debian 12 LXC and installs go2rtc, so your Ring
-#  (and other) cameras can be embedded in LabDash.
+#  LabDash — go2rtc + Reolink camera bridge — Proxmox VE helper script
+#  Creates an unprivileged Debian 12 LXC and installs go2rtc, so your Reolink
+#  (and other RTSP/ONVIF) cameras can be embedded in LabDash.
 #
-#  Ring has NO local stream — go2rtc logs into Ring's cloud for you and
-#  re-serves each camera as a browser-friendly page. YOU do the Ring login
-#  (email + password + 2FA) in go2rtc's own web UI afterwards; this script
-#  never sees your Ring credentials.
+#  Unlike Ring, wired/PoE Reolink cameras stream LOCALLY over RTSP — there is
+#  no cloud login, no 2FA and no refresh token. go2rtc connects straight to
+#  each camera on your LAN and re-serves it as a browser-friendly page.
+#
+#  (Battery Reolink cameras — Argus / Go / "Wireless" series — do NOT expose a
+#   local RTSP/ONVIF stream and cannot be bridged this way. Use a wired/PoE
+#   model, or view those in the Reolink app.)
 #
 #  Run this ON THE PROXMOX HOST as root:
-#    bash -c "$(curl -fsSL https://raw.githubusercontent.com/ckeeley97/labdash/main/proxmox/go2rtc-ring.sh)"
+#    bash -c "$(curl -fsSL https://raw.githubusercontent.com/ckeeley97/labdash/main/proxmox/go2rtc-reolink.sh)"
 #
 #  Every setting can be overridden with environment variables, e.g.:
-#    CTID=151 RAM=1024 INSTALL_TAILSCALE=yes bash go2rtc-ring.sh
-#    INSTALL_TAILSCALE=yes TS_AUTHKEY=tskey-auth-xxxx bash go2rtc-ring.sh   # unattended Tailscale
+#    CTID=151 RAM=1024 INSTALL_TAILSCALE=yes bash go2rtc-reolink.sh
+#    INSTALL_TAILSCALE=yes TS_AUTHKEY=tskey-auth-xxxx bash go2rtc-reolink.sh   # unattended Tailscale
 # ============================================================================
 set -euo pipefail
 
@@ -30,6 +33,7 @@ GO2RTC_PORT="${GO2RTC_PORT:-1984}"
 DEBIAN_VERSION="${DEBIAN_VERSION:-12}"
 INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-ask}"   # yes | no | ask
 TS_AUTHKEY="${TS_AUTHKEY:-}"                     # optional: unattended Tailscale login
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/ckeeley97/labdash/main}"
 
 # ------------------------------- cosmetics ---------------------------------
 RD=$'\033[01;31m'; GN=$'\033[1;92m'; YW=$'\033[33m'; BL=$'\033[36m'; CL=$'\033[m'
@@ -44,7 +48,7 @@ cat <<'EOF'
    __ _ ___ ___ |_  )_ _ | |_ __
   / _` / _ \___| / /| '_||  _/ _|
   \__, \___/   /___|_|   \__\__|
-  |___/   Ring cameras → LabDash
+  |___/  Reolink cameras → LabDash
 EOF
 }
 
@@ -126,7 +130,7 @@ pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" \
   --features nesting=1 \
   --onboot 1 \
   --tags go2rtc \
-  --description "go2rtc + Ring camera bridge for LabDash — installed by proxmox/go2rtc-ring.sh" >/dev/null
+  --description "go2rtc + Reolink camera bridge for LabDash — installed by proxmox/go2rtc-reolink.sh" >/dev/null
 ok "Container $CTID created."
 
 # --- if Tailscale: give the container a TUN device (needed inside an LXC) ---
@@ -164,7 +168,7 @@ HOST="${1:-$(hostname -I | awk '{print $1}')}"
 names=$(curl -fsSL "http://localhost:${PORT}/api/streams" 2>/dev/null | jq -r 'keys[]' 2>/dev/null || true)
 if [ -z "$names" ]; then
   echo "No camera streams yet."
-  echo "Open  http://${HOST}:${PORT}  ->  Add  ->  Ring  (do the 2FA login), then rerun this."
+  echo "Run  /opt/go2rtc/reolink-add-cameras.sh  to add your cameras, then rerun this."
   exit 0
 fi
 echo "Paste these lines into a LabDash 'Cameras (grid)' widget:"
@@ -175,38 +179,8 @@ while IFS= read -r n; do
   echo "${label} | http://${HOST}:${PORT}/stream.html?src=${n} | live"
 done <<< "$names"
 echo
-echo "For BATTERY cameras change 'live' to 'snapshot' and use this URL instead:"
-echo "  http://${HOST}:${PORT}/api/frame.jpeg?src=<name>"
+echo "Reolink cameras are wired/PoE, so use 'live' (as above)."
 PCS
-)
-
-# "get-ring-token" helper — generates a Ring refresh token via ring-auth-cli.
-# Prompts for email/password/2FA locally; nothing is stored by the helper.
-GET_TOKEN_B64=$(base64 -w0 <<'GTK'
-#!/usr/bin/env bash
-# Generate a Ring refresh token for go2rtc.
-# Prompts for your Ring email, password, and 2FA code — nothing is saved here.
-# Copy the printed token into go2rtc's web UI (Add -> Ring, refresh-token field),
-# or into /opt/go2rtc/go2rtc.yaml as:  streams: { cam: "ring:?refresh_token=TOKEN" }
-set -euo pipefail
-# ring-client-api (via undici) needs Node 20+ — Debian's apt ships Node 18,
-# which crashes with "ReferenceError: File is not defined". Ensure Node >= 20.
-need_node=1
-if command -v node >/dev/null 2>&1; then
-  major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-  [ "$major" -ge 20 ] 2>/dev/null && need_node=0
-fi
-if [ "$need_node" = 1 ]; then
-  echo "Installing Node.js 22 (one-time)…"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get remove -y -qq nodejs npm >/dev/null 2>&1 || true
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
-  apt-get install -y -qq nodejs >/dev/null
-fi
-echo "Starting Ring sign-in — have your 2FA method (SMS/email) ready."
-echo
-exec npx --yes -p ring-client-api ring-auth-cli
-GTK
 )
 
 msg "Installing go2rtc inside the container…"
@@ -262,12 +236,14 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
 
-  # Helper (shipped base64-encoded from the host): after you add Ring in the
-  # web UI, this prints ready-to-paste LabDash 'Cameras (grid)' lines.
+  # Helper (shipped base64-encoded from the host): after you add cameras,
+  # this prints ready-to-paste LabDash 'Cameras (grid)' lines.
   echo '$PRINT_CAMERAS_B64' | base64 -d > /opt/go2rtc/print-cameras.sh
   chmod +x /opt/go2rtc/print-cameras.sh
-  echo '$GET_TOKEN_B64' | base64 -d > /opt/go2rtc/get-ring-token.sh
-  chmod +x /opt/go2rtc/get-ring-token.sh
+
+  # Fetch the Reolink camera helper into the container for convenience.
+  curl -fsSL -o /opt/go2rtc/reolink-add-cameras.sh \"${REPO_RAW}/proxmox/reolink-add-cameras.sh\" \
+    && chmod +x /opt/go2rtc/reolink-add-cameras.sh || true
 
   systemctl daemon-reload
   systemctl enable -q --now go2rtc
@@ -301,23 +277,27 @@ ADDR="$IP"
 echo
 ok  "All done!"
 echo
-echo -e "  ${GN}1.${CL} Open go2rtc:   ${GN}http://${IP}:${GO2RTC_PORT}${CL}"
-echo -e "  ${GN}2.${CL} Get a Ring refresh token (the reliable way to log in):"
-echo -e "       ${BL}pct exec $CTID -- /opt/go2rtc/get-ring-token.sh${CL}"
-echo -e "       Enter your Ring email + password + 2FA code; copy the printed token,"
-echo -e "       then paste it into go2rtc's ${BL}Add → Ring${CL} refresh-token (second) field."
+echo -e "  ${GN}1.${CL} Make sure RTSP is enabled on each Reolink camera:"
+echo -e "       Reolink app/web → Settings → Network → Advanced → Server Settings → RTSP ${GN}on${CL}."
+echo -e "  ${GN}2.${CL} Add your cameras (no cloud login needed — just LAN IPs + a camera login):"
+echo -e "       ${BL}pct exec $CTID -- /opt/go2rtc/reolink-add-cameras.sh${CL}"
+echo -e "       It probes each camera, writes the right RTSP stream, and restarts go2rtc."
 echo -e "  ${GN}3.${CL} List your cameras as LabDash-ready lines:"
 echo -e "       ${BL}pct exec $CTID -- /opt/go2rtc/print-cameras.sh ${ADDR}${CL}"
 echo -e "  ${GN}4.${CL} In LabDash: Edit → + Add widget → ${BL}Cameras (grid)${CL}, paste those lines."
-echo -e "       Use ${BL}live${CL} for wired cameras, ${BL}snapshot${CL} for battery ones."
 echo
+echo -e "  ${YW}Tip:${CL} create a low-privilege user on each Reolink camera for the bridge"
+echo -e "  (Settings → User) rather than using the admin account."
 if [[ "$INSTALL_TAILSCALE" == "yes" ]]; then
   echo -e "  ${YW}Remote access:${CL} once Tailscale is logged in, use the container's Tailscale"
   echo -e "  IP/name in the camera URLs so they work away from home. Do NOT expose go2rtc"
   echo -e "  to the internet directly."
 else
-  echo -e "  ${YW}Heads-up:${CL} you wanted remote access — install Tailscale (rerun with"
+  echo -e "  ${YW}Heads-up:${CL} for remote access install Tailscale (rerun with"
   echo -e "  INSTALL_TAILSCALE=yes) or put a WebSocket-capable reverse proxy in front of go2rtc."
 fi
 echo -e "  ${YW}Don't${CL} tick LabDash's \"Proxy through the LabDash server\" box for cameras."
+echo
+echo -e "  ${YW}Battery Reolink cameras${CL} (Argus / Go / Wireless) have no local RTSP stream and"
+echo -e "  cannot be bridged — use a wired/PoE model or the Reolink app for those."
 echo

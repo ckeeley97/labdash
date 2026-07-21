@@ -89,6 +89,29 @@ When "Proxy" is ticked, the iframe loads via `/api/proxy/<widget-id>/…` instea
 
 Widget data is fetched by the LabDash server (60 s cache) — tokens stay server-side and self-signed certs are accepted.
 
+## Cameras (Reolink via go2rtc)
+
+LabDash embeds camera feeds through a small **go2rtc** bridge container: go2rtc connects to each camera and re-serves it as a browser-friendly page, which the **Cameras (grid)** widget then shows. Wired/PoE **Reolink** cameras stream locally over RTSP, so there's no cloud account, no 2FA and no token — just the camera's LAN IP and a login.
+
+On the **Proxmox host** shell, as root:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/ckeeley97/labdash/main/proxmox/go2rtc-reolink.sh)"
+```
+
+That creates an unprivileged Debian LXC, installs go2rtc, and (optionally) Tailscale for safe remote access. Then add your cameras — the helper probes each one to find the right RTSP path (Reolink bakes the codec into the path: `h264…` vs `h265…`, main vs sub) and writes go2rtc's config for you:
+
+```bash
+# enable RTSP on each camera first: Reolink app/web → Settings → Network →
+# Advanced → Server Settings → RTSP (on). A viewer-only user is safest.
+pct exec <CTID> -- /opt/go2rtc/reolink-add-cameras.sh
+pct exec <CTID> -- /opt/go2rtc/print-cameras.sh <container-ip>   # prints ready-to-paste widget lines
+```
+
+Finally, in LabDash: **Edit → + Add widget → Cameras (grid)**, and paste those lines. Don't tick *Proxy through the LabDash server* for cameras — point the URLs directly at the go2rtc host.
+
+> Battery Reolink cameras (Argus / Go / Wireless) have no local RTSP stream and can't be bridged this way — use a wired/PoE model, or the Reolink app for those.
+
 ## Password & sessions
 
 - First visit shows a **set password** screen; after that it's a normal login.
